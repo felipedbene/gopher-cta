@@ -99,6 +99,11 @@ pub fn root_menu(pos: &Positions) -> Vec<Entry> {
         info("==============================================="),
         info(""),
         link(ItemKind::Text, "Live train map (braille)", "/map.txt"),
+        link(
+            ItemKind::Text,
+            "Geographic atlas (coast + landmarks)",
+            "/atlas.txt",
+        ),
         info(""),
         info("Trains by line:"),
     ];

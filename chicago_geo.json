@@ -1,0 +1,50 @@
+{
+  "meta": {
+    "name": "Chicago geo overlay — CTA 'L' track grid",
+    "datum": "WGS84",
+    "note": "Hand-traced coarse anchors. Tune against the rendered grid, not against survey accuracy — cell quantization swamps sub-0.01 deg precision.",
+    "bounds_hint": { "lat": [41.70, 42.08], "lon": [-87.92, -87.52] }
+  },
+
+  "shoreline": {
+    "name": "Lake Michigan — Chicago lakefront",
+    "glyph": "\u2593",
+    "_order": "north -> south (matches grid rows top -> bottom)",
+    "points": [
+      [42.073, -87.683],
+      [42.019, -87.668],
+      [41.990, -87.652],
+      [41.964, -87.638],
+      [41.926, -87.630],
+      [41.911, -87.627],
+      [41.892, -87.599],
+      [41.886, -87.609],
+      [41.866, -87.610],
+      [41.852, -87.607],
+      [41.838, -87.602],
+      [41.793, -87.574],
+      [41.782, -87.572],
+      [41.762, -87.559],
+      [41.752, -87.549],
+      [41.715, -87.531],
+      [41.700, -87.524]
+    ]
+  },
+
+  "landmarks": [
+    { "id": 1,  "name": "Willis Tower",          "lat": 41.8789, "lon": -87.6359, "glyph": "\u25B2", "category": "skyline" },
+    { "id": 2,  "name": "Cloud Gate (The Bean)",  "lat": 41.8827, "lon": -87.6233, "glyph": "\u25C6", "category": "park" },
+    { "id": 3,  "name": "Art Institute",          "lat": 41.8796, "lon": -87.6237, "glyph": "\u25C7", "category": "museum" },
+    { "id": 4,  "name": "Buckingham Fountain",    "lat": 41.8758, "lon": -87.6189, "glyph": "\u2295", "category": "park" },
+    { "id": 5,  "name": "Navy Pier",              "lat": 41.8917, "lon": -87.6063, "glyph": "\u2693", "category": "landmark" },
+    { "id": 6,  "name": "Soldier Field",          "lat": 41.8623, "lon": -87.6167, "glyph": "\u2691", "category": "sport" },
+    { "id": 7,  "name": "Field Museum",           "lat": 41.8663, "lon": -87.6170, "glyph": "\u25C7", "category": "museum" },
+    { "id": 8,  "name": "McCormick Place",        "lat": 41.8514, "lon": -87.6166, "glyph": "\u25A3", "category": "landmark" },
+    { "id": 9,  "name": "United Center",          "lat": 41.8807, "lon": -87.6742, "glyph": "\u2691", "category": "sport" },
+    { "id": 10, "name": "Wrigley Field",          "lat": 41.9484, "lon": -87.6553, "glyph": "\u2691", "category": "sport" },
+    { "id": 11, "name": "Guaranteed Rate Field",  "lat": 41.8300, "lon": -87.6338, "glyph": "\u2691", "category": "sport" },
+    { "id": 12, "name": "Lincoln Park Zoo",       "lat": 41.9217, "lon": -87.6334, "glyph": "\u2663", "category": "park" },
+    { "id": 13, "name": "Midway (MDW)",           "lat": 41.7868, "lon": -87.7522, "glyph": "\u2708", "category": "transit_hub" },
+    { "id": 14, "name": "O'Hare (ORD)",           "lat": 41.9786, "lon": -87.9047, "glyph": "\u2708", "category": "transit_hub" }
+  ]
+}

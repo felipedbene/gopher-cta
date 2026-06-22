@@ -10,6 +10,7 @@
 //!   CTA_ROUTES         comma route keys (default: red,blue,brn,g,org,p,pink,y)
 //!   GOPHER_OUT         output dir (default: public); the daemon serves <out>/current
 
+mod atlas;
 mod braille;
 mod fetch;
 mod project;
