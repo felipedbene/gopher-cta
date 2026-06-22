@@ -30,6 +30,26 @@
     ]
   },
 
+  "expressways": [
+    {
+      "name": "I-90/94 Kennedy + Dan Ryan",
+      "_order": "north -> south (NW Kennedy down through downtown to the south Dan Ryan)",
+      "points": [
+        [41.980, -87.835],
+        [41.965, -87.760],
+        [41.945, -87.720],
+        [41.920, -87.685],
+        [41.900, -87.655],
+        [41.878, -87.642],
+        [41.855, -87.638],
+        [41.825, -87.634],
+        [41.790, -87.632],
+        [41.755, -87.627],
+        [41.722, -87.624]
+      ]
+    }
+  ],
+
   "landmarks": [
     { "id": 1,  "name": "Willis Tower",          "lat": 41.8789, "lon": -87.6359, "category": "skyline" },
     { "id": 2,  "name": "Cloud Gate (The Bean)",  "lat": 41.8827, "lon": -87.6233, "category": "park" },

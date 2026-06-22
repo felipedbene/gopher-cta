@@ -20,7 +20,8 @@
 //! trains on top, so geo never re-rasterizes.
 //!
 //! Z-order (painter's algorithm, higher priority wins):
-//!   shoreline < landmarks < trains.
+//!   shoreline < expressways < landmarks < trains.
+//! Expressways are drawn with a slope-aware glyph (`= | / \`).
 
 use serde::Deserialize;
 
@@ -37,6 +38,7 @@ const GEO_JSON: &str = include_str!("../chicago_geo.json");
 // The water label sits above everything so a stray near-shore train can't break
 // it (it lives in open water east of the coast, so nothing else is there anyway).
 const PRIO_SHORE: u8 = 1;
+const PRIO_EXPRESSWAY: u8 = 2; // the reserved "track"-layer slot
 const PRIO_LANDMARK: u8 = 3;
 const PRIO_TRAIN: u8 = 5;
 const PRIO_LABEL: u8 = 7;
@@ -49,6 +51,22 @@ const LAKE_LABEL: &str = "LAKE MICHIGAN";
 // take their CTA line colour). `0` = uncoloured.
 const WATER_COLOR: u8 = 44; // cyan: shoreline + lake label
 const LANDMARK_COLOR: u8 = 250; // light grey, so coloured trains pop
+const EXPRESSWAY_COLOR: u8 = 240; // dark grey: roads recede behind coloured trains
+
+/// Expressway-segment glyph by slope (in cells): `=` horizontal, `|` vertical,
+/// `/` SW-NE, `\` NW-SE. Screen rows increase downward, so same-sign dx/dy is `\`.
+fn road_glyph(dx: i32, dy: i32) -> char {
+    let (adx, ady) = (dx.abs(), dy.abs());
+    if adx >= 2 * ady {
+        '='
+    } else if ady >= 2 * adx {
+        '|'
+    } else if (dx > 0) == (dy > 0) {
+        '\\'
+    } else {
+        '/'
+    }
+}
 
 /// On-grid ASCII markers. Single-width on every client; no emoji/CJK glyphs to
 /// shear the fixed-width grid, and readable on non-UTF-8 gopher clients.
@@ -82,7 +100,16 @@ fn heading_glyph(heading: Option<u16>) -> char {
 pub struct GeoData {
     pub meta: Meta,
     pub shoreline: Shoreline,
+    #[serde(default)]
+    pub expressways: Vec<Expressway>,
     pub landmarks: Vec<Landmark>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Expressway {
+    pub name: String,
+    /// `[lat, lon]` anchors along the route.
+    pub points: Vec<[f64; 2]>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -270,6 +297,22 @@ impl Atlas {
             }
         }
 
+        // Expressways (the reserved "track" layer): each segment drawn with a
+        // glyph that follows its slope, so the road reads as a road.
+        for road in &geo.expressways {
+            for seg in road.points.windows(2) {
+                if let (Some((c0, r0)), Some((c1, r1))) = (
+                    project_cell(seg[0][0], seg[0][1], &geom),
+                    project_cell(seg[1][0], seg[1][1], &geom),
+                ) {
+                    let g = road_glyph(c1 - c0, r1 - r0);
+                    bresenham(c0, r0, c1, r1, |c, r| {
+                        base.put(c, r, g, PRIO_EXPRESSWAY, EXPRESSWAY_COLOR)
+                    });
+                }
+            }
+        }
+
         // Landmarks: one marker cell each; off-bbox ones recorded for the legend.
         let mut off_map = Vec::new();
         for m in &geo.landmarks {
@@ -385,6 +428,15 @@ impl Atlas {
             project::LON_MIN,
             project::LON_MAX,
         ));
+        if !self.geo.expressways.is_empty() {
+            let names: Vec<&str> = self
+                .geo
+                .expressways
+                .iter()
+                .map(|r| r.name.as_str())
+                .collect();
+            out.push_str(&format!("expressways  (= | / \\):  {}\n", names.join("; ")));
+        }
 
         // Numbered landmark legend (keyed by id; labels never go inline on the
         // grid, where they would collide on a char cell).
@@ -439,6 +491,18 @@ mod tests {
         assert_eq!(willis.name, "Willis Tower");
         let ohare = geo.landmarks.iter().find(|m| m.id == 14).unwrap();
         assert_eq!(ohare.category, "transit_hub");
+        assert_eq!(geo.expressways.len(), 1);
+        assert!(geo.expressways[0].name.contains("90/94"));
+        assert_eq!(geo.expressways[0].points.len(), 11);
+    }
+
+    #[test]
+    fn road_glyphs_follow_slope() {
+        assert_eq!(road_glyph(10, 0), '='); // E-W
+        assert_eq!(road_glyph(0, 10), '|'); // N-S
+        assert_eq!(road_glyph(5, 5), '\\'); // down-right (NW-SE)
+        assert_eq!(road_glyph(5, -5), '/'); // up-right (SW-NE)
+        assert_eq!(road_glyph(-4, -4), '\\'); // up-left
     }
 
     #[test]
@@ -548,6 +612,27 @@ mod tests {
         // Per-line counts mirror the braille map.
         assert!(body.contains("legend (trains per line):"));
         assert!(body.contains("Red      5"));
+    }
+
+    #[test]
+    fn atlas_draws_expressways() {
+        let atlas = Atlas::build(project::geometry());
+        let body = atlas.render(&Positions::default(), "CTA 'L'");
+        // A road glyph appears in the grid body (between the dashed rules).
+        let grid: String = body
+            .lines()
+            .skip_while(|l| !l.starts_with("---"))
+            .skip(1)
+            .take_while(|l| !l.starts_with("---"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            ['=', '|', '/', '\\'].iter().any(|&c| grid.contains(c)),
+            "no expressway glyph in the grid"
+        );
+        // The legend names the route.
+        assert!(body.contains("expressways"));
+        assert!(body.contains("Kennedy + Dan Ryan"));
     }
 
     #[test]
