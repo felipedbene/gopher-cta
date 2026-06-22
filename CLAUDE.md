@@ -142,8 +142,9 @@ missing, no fetcher is running — that's the usual "0 bytes from gopher" cause.
 
 ## Status (update as it changes)
 
-geo atlas (commit 1) + AI narration pages (commit 2) merged to `master`;
-`ghcr.io/felipedbene/gopher-cta:latest` built+pushed and **deployed locally** —
-fetcher + geomyidae containers serving `gopher://10.0.10.69:7070`; dispatch /
-sitrep / events validated live. Commit 3 (landmarks type-1 menu + detail pages,
-ANSI map variant) not started.
+geo atlas (commit 1) + AI narration pages (commit 2) on `master`, **deployed
+locally** (fetcher + geomyidae at `gopher://10.0.10.69:7070`). Commit 3 mostly
+done: train heading arrows (`^ > v <`), the labelled lakefront (LON_MAX widened
+east, "LAKE MICHIGAN" in the water), and ANSI colour variants `map.ansi` /
+`atlas.ansi` (trains by line). Remaining: `/landmarks` type-1 menu + per-landmark
+detail pages. Live image is a local build; push to ghcr is still felipe's step.

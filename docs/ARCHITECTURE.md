@@ -86,7 +86,8 @@ Two design choices drive everything:
 |------|------|---------|
 | `index.gph` | menu | root: links to every surface + per-line counts |
 | `map.txt` | text | braille geographic plot of live trains (high-res, monochrome) |
-| `atlas.txt` | text | char-cell map: shoreline `#` + landmarks `A`–`N` (by id) + trains `o`, ASCII for portability, lettered legend |
+| `atlas.txt` | text | char-cell map: shoreline `#` + "LAKE MICHIGAN" label + landmarks `A`–`N` (by id) + trains as heading arrows `^ > v <`, ASCII, lettered legend |
+| `map.ansi` / `atlas.ansi` | text | colour (ANSI 256) variants of the two maps — trains by CTA line colour; for `curl`/`cat`, plain pages kept for strict clients |
 | `dispatch.txt` | text | AI one-liner + authoritative feed stats |
 | `sitrep.txt` | text | AI alerts summary for the home station |
 | `events.txt` | text | AI event advisory |
@@ -184,10 +185,10 @@ amd64/arm64 nodes.
 
 ### Roadmap (beyond the k8s move)
 
-- **Commit 3 — gopher-native nav.** `/landmarks` as a type-1 menu with per-landmark
-  detail pages (name, category, nearest stop if derivable); an ANSI-colour
-  `map.ansi` / `atlas.ansi` variant alongside the plain pages (strict clients keep
-  the plain one). `Landmark.category` is already parsed for this.
+- **Commit 3 — gopher-native nav.** *Done:* train heading arrows, the labelled
+  lakefront, and the ANSI-colour `map.ansi` / `atlas.ansi` variants. *Remaining:*
+  `/landmarks` as a type-1 menu with per-landmark detail pages (name, category,
+  nearest stop if derivable). `Landmark.category` is already parsed for this.
 - **Multi-arch images.** buildx `--platform linux/amd64,linux/arm64` so local
   (arm) and cluster (amd64) both run native; today's image is amd64-under-emulation
   locally.
