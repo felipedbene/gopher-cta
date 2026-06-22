@@ -130,6 +130,7 @@ pub fn root_menu(pos: &Positions) -> Vec<Entry> {
         ),
         link(ItemKind::Text, "  -> colour (ANSI): map", "/map.ansi"),
         link(ItemKind::Text, "  -> colour (ANSI): atlas", "/atlas.ansi"),
+        link(ItemKind::Menu, "Chicago landmarks", "/landmarks"),
         info(""),
         link(
             ItemKind::Text,

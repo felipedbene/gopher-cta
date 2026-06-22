@@ -27,7 +27,7 @@
 use serde::Deserialize;
 
 use crate::project::{self, Geometry};
-use crate::render::{line_ansi256, line_label, LINE_ORDER};
+use crate::render::{line_ansi256, line_label, Entry, ItemKind, LINE_ORDER};
 use crate::transit::Positions;
 
 /// The overlay scene, compiled in so the fetcher needs no data file at runtime
@@ -468,6 +468,68 @@ impl Atlas {
         }
         out
     }
+
+    /// Type-1 menu of every landmark, each drilling into its detail page. The
+    /// menu lists all of them (not just the visible-on-grid subset) so a covered
+    /// or off-bbox landmark is still reachable.
+    pub fn landmarks_menu(&self) -> Vec<Entry> {
+        let mut e = vec![
+            Entry::Info("Chicago landmarks".to_string()),
+            Entry::Info("=".repeat(40)),
+            Entry::Info("Marker letters key the /atlas.txt grid.".to_string()),
+            Entry::Info(String::new()),
+        ];
+        for m in &self.geo.landmarks {
+            e.push(Entry::Link {
+                kind: ItemKind::Text,
+                display: format!("{}  {} ({})", m.marker, m.name, m.category),
+                selector: landmark_selector(m.marker),
+            });
+        }
+        e
+    }
+
+    /// (marker, detail-page text) for every landmark, for writing the tree.
+    pub fn landmark_pages(&self) -> Vec<(char, String)> {
+        self.geo
+            .landmarks
+            .iter()
+            .map(|m| (m.marker, self.landmark_page(m.marker)))
+            .collect()
+    }
+
+    /// The detail page (type-0 text) for one landmark by its marker. An unknown
+    /// marker yields a clean notice.
+    pub fn landmark_page(&self, marker: char) -> String {
+        let Some(m) = self.geo.landmarks.iter().find(|m| m.marker == marker) else {
+            return format!(
+                "Unknown landmark '{marker}'\n{}\n\nNo landmark uses this marker. \
+                 Head back to the landmarks menu.\n",
+                "=".repeat(40)
+            );
+        };
+        let mut out = String::new();
+        out.push_str(&format!("{}\n", m.name));
+        out.push_str(&"=".repeat(40));
+        out.push_str("\n\n");
+        out.push_str(&format!("category:     {}\n", m.category));
+        out.push_str(&format!("atlas marker: {}\n", m.marker));
+        out.push_str(&format!("position:     {:.5}, {:.5}\n", m.lat, m.lon));
+        out.push_str(&format!(
+            "\nPlotted on the geographic atlas (/atlas.txt) at marker '{}'.\n",
+            m.marker
+        ));
+        out.push_str(
+            "The CTA positions feed carries no station geometry, so a nearest-'L'\n\
+             stop isn't available here.\n",
+        );
+        out
+    }
+}
+
+/// Selector (served path) for a landmark's detail page, keyed by its marker.
+fn landmark_selector(marker: char) -> String {
+    format!("/landmark/{marker}.txt")
 }
 
 #[cfg(test)]
@@ -621,6 +683,42 @@ mod tests {
         // Per-line counts mirror the braille map.
         assert!(body.contains("legend (trains per line):"));
         assert!(body.contains("Red      5"));
+    }
+
+    #[test]
+    fn landmarks_menu_links_every_landmark() {
+        let atlas = Atlas::build(project::geometry());
+        let menu = atlas.landmarks_menu();
+        // All 14 landmarks present as type-0 links to /landmark/<marker>.txt.
+        let links: Vec<_> = menu
+            .iter()
+            .filter_map(|e| match e {
+                Entry::Link {
+                    kind: ItemKind::Text,
+                    display,
+                    selector,
+                } => Some((display.as_str(), selector.as_str())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(links.len(), 14);
+        assert!(links
+            .iter()
+            .any(|(d, s)| d.contains("Willis Tower") && *s == "/landmark/W.txt"));
+        assert!(links.iter().any(|(_, s)| *s == "/landmark/F.txt")); // Field Museum
+    }
+
+    #[test]
+    fn landmark_page_known_and_unknown() {
+        let atlas = Atlas::build(project::geometry());
+        let willis = atlas.landmark_page('W');
+        assert!(willis.starts_with("Willis Tower"));
+        assert!(willis.contains("category:     skyline"));
+        assert!(willis.contains("atlas marker: W"));
+        assert!(willis.contains("position:     41.87890, -87.63590"));
+        // Unknown marker -> clean notice, no panic.
+        let bogus = atlas.landmark_page('Z');
+        assert!(bogus.starts_with("Unknown landmark 'Z'"));
     }
 
     #[test]

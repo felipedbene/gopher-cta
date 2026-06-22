@@ -140,6 +140,8 @@ fn publish(
 ///   about.txt            about page (text)
 ///   <line>/index.gph     per-line menu, each train a drill-down link
 ///   train/<run>.txt      per-train detail page (text)
+///   landmarks/index.gph  type-1 menu of Chicago landmarks
+///   landmark/<X>.txt     per-landmark detail page (keyed by marker letter)
 fn write_tree(
     dir: &Path,
     pos: &Positions,
@@ -200,6 +202,22 @@ fn write_tree(
             tdir.join(format!("{}.txt", t.run)),
             render::train_page(pos, &t.run),
         )?;
+    }
+
+    // Landmarks: a type-1 menu (landmarks/index.gph) + one detail page each.
+    let lmdir = dir.join("landmarks");
+    fs::create_dir_all(&lmdir)?;
+    fs::write(
+        lmdir.join("index.gph"),
+        render_menu_index(&atlas.landmarks_menu()),
+    )?;
+    let mdir = dir.join("landmark");
+    fs::create_dir_all(&mdir)?;
+    for (marker, page) in atlas.landmark_pages() {
+        // Markers are A-Z (filename-safe); guard anyway before using as a path.
+        if marker.is_ascii_alphanumeric() {
+            fs::write(mdir.join(format!("{marker}.txt")), page)?;
+        }
     }
     Ok(())
 }
@@ -411,6 +429,7 @@ mod tests {
         assert!(root.contains("  gopher-cta : live CTA 'L' trains over Gopher\n"));
         assert!(root.contains("[0|Live train map (braille)|/map.txt|server|port]\n"));
         assert!(root.contains("[0|Geographic atlas (coast + landmarks)|/atlas.txt|server|port]\n"));
+        assert!(root.contains("[1|Chicago landmarks|/landmarks|server|port]\n"));
         assert!(root.contains("[0|Dispatch (summary + feed stats)|/dispatch.txt|server|port]\n"));
         assert!(root.contains("[0|SITREP (AI alerts summary)|/sitrep.txt|server|port]\n"));
         assert!(root.contains("[0|Event advisory (AI)|/events.txt|server|port]\n"));
@@ -462,5 +481,17 @@ mod tests {
         // a detail page per running train (18 in the fixture)
         let n = fs::read_dir(snap.join("train")).unwrap().count();
         assert_eq!(n, pos.trains.len());
+
+        // landmarks: root links the menu; the menu drills into a detail page;
+        // the page exists with matching content.
+        assert!(root.contains("[1|Chicago landmarks|/landmarks|server|port]"));
+        let lm = fs::read_to_string(snap.join("landmarks/index.gph")).unwrap();
+        assert!(lm.contains("/landmark/W.txt"));
+        let willis = fs::read_to_string(snap.join("landmark/W.txt")).unwrap();
+        assert!(willis.starts_with("Willis Tower"));
+        assert!(willis.contains("category:     skyline"));
+        // one detail page per landmark (14 in the overlay)
+        let n = fs::read_dir(snap.join("landmark")).unwrap().count();
+        assert_eq!(n, 14);
     }
 }

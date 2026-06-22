@@ -93,6 +93,8 @@ Two design choices drive everything:
 | `events.txt` | text | AI event advisory |
 | `<line>/index.gph` | menu | per-line running trains |
 | `train/<run>.txt` | text | per-train detail |
+| `landmarks/index.gph` | menu | Chicago landmarks, each → a detail page |
+| `landmark/<X>.txt` | text | per-landmark detail (keyed by marker letter) |
 | `about.txt` | text | canvas/projection params |
 
 Two map surfaces on purpose: braille gives sub-cell **resolution** but no
@@ -185,10 +187,11 @@ amd64/arm64 nodes.
 
 ### Roadmap (beyond the k8s move)
 
-- **Commit 3 — gopher-native nav.** *Done:* train heading arrows, the labelled
-  lakefront, and the ANSI-colour `map.ansi` / `atlas.ansi` variants. *Remaining:*
-  `/landmarks` as a type-1 menu with per-landmark detail pages (name, category,
-  nearest stop if derivable). `Landmark.category` is already parsed for this.
+- **Commit 3 — gopher-native nav.** *Done* — train heading arrows, the labelled
+  lakefront, the ANSI-colour `map.ansi` / `atlas.ansi` variants, and the
+  `/landmarks` type-1 menu with a per-landmark detail page each
+  (`/landmark/<marker>.txt`: name, category, marker, position). Nearest-'L'-stop
+  is noted as unavailable — the positions feed carries no station geometry.
 - **Multi-arch images.** buildx `--platform linux/amd64,linux/arm64` so local
   (arm) and cluster (amd64) both run native; today's image is amd64-under-emulation
   locally.
