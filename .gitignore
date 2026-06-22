@@ -1,3 +1,5 @@
 /target
+/target-ppc64
+/dist
 Cargo.lock
 .env

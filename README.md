@@ -150,7 +150,56 @@ present, CRLF endings, menu ends with `.`, type-7 selector splits on TAB), and
 an end-to-end fixture render of `/map` (non-empty, correct row count, contains
 braille glyphs).
 
+## Cross-compiling for PowerPC (PowerMac G5)
+
+The G5 (PowerPC 970) is **big-endian** `powerpc64-unknown-linux-gnu` — *not*
+`powerpc64le` (that's little-endian POWER8+). One snag: the default TLS stack
+(rustls → **ring**) has no big-endian support, so the default build can't target
+the G5. TLS is only needed for the outbound CTA HTTPS fetch, so the fix is a
+Cargo feature that swaps the backend to OpenSSL:
+
+| Feature      | TLS backend            | Use for                                  |
+| ------------ | ---------------------- | ---------------------------------------- |
+| `tls-rustls` | rustls + ring (default)| x86/arm/macOS — your normal `cargo build`|
+| `tls-native` | OpenSSL (vendored)     | big-endian targets like the G5           |
+
+The big-endian ppc64 toolchain isn't in Debian/Ubuntu's normal repos (only
+little-endian `ppc64el` is), so the build runs inside the `cross-rs` toolchain
+image with Rust installed on top. One command:
+
+```sh
+./scripts/build-ppc64.sh      # -> dist/gopher-cta-powerpc64
+```
+
+Requires Docker. On Apple Silicon it builds under emulation (slow but correct).
+The result is a big-endian **Power ELF V1** binary with OpenSSL statically
+vendored in, so it only needs glibc at runtime:
+
+```
+ELF 64-bit MSB pie executable, 64-bit PowerPC, Power ELF V1 ABI ... dynamically linked
+NEEDED: libgcc_s, librt, libpthread, libm, libdl, libc   (no libssl/libcrypto)
+```
+
+**glibc caveat:** built against the toolchain image's glibc (2.31). It'll run on
+a G5 distro with glibc ≥ 2.31 (current Debian ppc64 ports, Adélie, Void PPC,
+recent Gentoo). Check on the G5 with `ldd --version`; if it's older, rebuild on
+an older base image or switch to the `powerpc64-unknown-linux-musl` target.
+
+### Running it on the G5
+
+```sh
+scp dist/gopher-cta-powerpc64 you@g5:~/
+# on the G5:
+CTA_TRAIN_API_KEY=... GOPHER_HOST=<g5-lan-ip> ./gopher-cta-powerpc64
+```
+
+It listens on `0.0.0.0:7070`, so point any gopher client on your LAN at the G5.
+Without a key it serves the bundled fixture (no network/TLS needed at all).
+Verified end-to-end under emulation: the big-endian binary boots, fetches live
+CTA data over HTTPS (OpenSSL), and serves the braille map and drill-down menus.
+
 ## Scope
 
-CTA only. No Metra/GTFS-RT (stub), no TLS, no auth, no HTTP, no deploy — local
-build/test only. Not affiliated with the Chicago Transit Authority.
+CTA only this build. No Metra/GTFS-RT (stub), no auth, no HTTP frontend. TLS is
+used only for the outbound CTA fetch (rustls by default, OpenSSL for big-endian
+targets). Not affiliated with the Chicago Transit Authority.

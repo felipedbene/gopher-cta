@@ -4,12 +4,27 @@ version = "0.1.0"
 edition = "2021"
 description = "A Gopher (RFC 1436) server that plots live CTA train positions as a Unicode-braille geographic map."
 
+[features]
+default = ["tls-rustls"]
+# Pure-Rust TLS (rustls + ring). Default; great on x86/arm/macOS. NOTE: ring has
+# no big-endian support, so this does NOT build for the PowerPC G5
+# (powerpc64-unknown-linux-gnu). Use `tls-native` there.
+tls-rustls = ["reqwest/rustls-tls"]
+# OpenSSL-backed TLS, vendored and compiled from source for the target. This is
+# the path for big-endian hosts like the G5. Cross-build with:
+#   cross build --release --target powerpc64-unknown-linux-gnu \
+#       --no-default-features --features tls-native
+tls-native = ["reqwest/native-tls", "dep:openssl"]
+
 [dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dotenvy = "0.15"   # load a local .env (gitignored) so the API key need not be exported
+# Only pulled in by `tls-native`; `vendored` compiles OpenSSL from source so the
+# cross toolchain doesn't need target OpenSSL headers/libs installed.
+openssl = { version = "0.10", features = ["vendored"], optional = true }
 
 [profile.release]
 opt-level = 3

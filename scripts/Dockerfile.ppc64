@@ -1,0 +1,21 @@
+# Builder image for big-endian PowerPC64 Linux (the PowerMac G5 target).
+#
+# Base is the cross-rs toolchain image, which ships a purpose-built big-endian
+# powerpc64-unknown-linux-gnu C toolchain (correct ELFv1 ABI, generic ppc64 ISA
+# -> safe for a 970/G5) and presets CC_/linker env. It does NOT ship Rust (the
+# `cross` CLI normally mounts the host's), so we install a Rust toolchain here
+# and drive `cargo` directly — avoiding the `cross` CLI's rustup step, which
+# breaks on an Apple Silicon (darwin) host.
+#
+# The image is amd64; on an arm64 host it runs under emulation, so rustc is slow
+# but the output ABI is exactly what the G5 needs.
+FROM ghcr.io/cross-rs/powerpc64-unknown-linux-gnu:0.2.5
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --profile minimal --default-toolchain stable
+ENV PATH=/root/.cargo/bin:$PATH
+RUN rustup target add powerpc64-unknown-linux-gnu
