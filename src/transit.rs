@@ -29,6 +29,7 @@ pub struct Train {
     pub heading: Option<u16>,
     pub approaching: bool,
     pub delayed: bool,
+    pub arr_time: Option<String>, // predicted arrival at next_station (raw "arrT")
 }
 
 /// A snapshot of all live trains plus the feed's own timestamp.
@@ -192,6 +193,8 @@ struct RawTrain {
     dest_nm: Option<String>,
     #[serde(rename = "nextStaNm")]
     next_sta_nm: Option<String>,
+    #[serde(rename = "arrT")]
+    arr_t: Option<String>,
     #[serde(rename = "isApp")]
     is_app: Option<String>,
     #[serde(rename = "isDly")]
@@ -233,6 +236,7 @@ pub fn parse_positions(body: &str) -> Result<Positions, BoxErr> {
                 heading: t.heading.and_then(|h| h.parse().ok()),
                 approaching: truthy(&t.is_app),
                 delayed: truthy(&t.is_dly),
+                arr_time: t.arr_t.filter(|s| !s.is_empty()),
             });
         }
     }
@@ -279,6 +283,7 @@ mod tests {
         assert!((r801.lat - 42.00857).abs() < 1e-6);
         assert!((r801.lon - (-87.66145)).abs() < 1e-6);
         assert_eq!(r801.heading, Some(358));
+        assert_eq!(r801.arr_time.as_deref(), Some("2026-06-21T02:17:00"));
     }
 
     #[test]

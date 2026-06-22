@@ -31,6 +31,21 @@ fn line_label(key: &str) -> &str {
     }
 }
 
+/// CTA brand hex for a line key, shown on the per-train detail page.
+fn line_color(key: &str) -> &'static str {
+    match key {
+        "red" => "#c60c30",
+        "blue" => "#00a1de",
+        "brn" => "#62361b",
+        "g" => "#009b3a",
+        "org" => "#f9461c",
+        "p" | "pexp" => "#522398",
+        "pink" => "#e27ea6",
+        "y" => "#f9e300",
+        _ => "#888888",
+    }
+}
+
 /// The route keys we advertise in the `/cta` menu, in board order.
 const LINE_ORDER: &[&str] = &["red", "blue", "brn", "g", "org", "p", "pink", "y"];
 
@@ -110,7 +125,12 @@ impl<S: TransitSource + Send + Sync + 'static> Server<S> {
             s if s.starts_with("/cta/") => {
                 let line = &s["/cta/".len()..];
                 let pos = self.snapshot().await;
-                render_text(&build_line_text(&pos, line))
+                build_line_menu(&pos, line, &self.host, self.port)
+            }
+            s if s.starts_with("/train/") => {
+                let run = &s["/train/".len()..];
+                let pos = self.snapshot().await;
+                render_text(&build_train_text(&pos, run))
             }
             other => render_text(&format!(
                 "Unknown selector: {other}\r\n\r\nGo back to the root menu."
@@ -173,25 +193,33 @@ pub fn build_cta_menu(pos: &Positions, host: &str, port: u16) -> String {
     render_menu(&items)
 }
 
-/// Per-line text view: one block per train (run, dest, next stop, flags).
-pub fn build_line_text(pos: &Positions, line: &str) -> String {
+/// Per-line view: a gopher menu whose run rows are clickable (type-1) items that
+/// drill into `/train/<run_id>` detail pages. Host/port come from the same source
+/// as the rest of the menus so links resolve back to this server.
+pub fn build_line_menu(pos: &Positions, line: &str, host: &str, port: u16) -> String {
     let mut trains: Vec<&Train> = pos.trains.iter().filter(|t| t.line == line).collect();
     trains.sort_by(|a, b| a.run.cmp(&b.run));
 
-    let mut out = String::new();
-    out.push_str(&format!("{} Line -- live trains\n", line_label(line)));
-    out.push_str(&"=".repeat(40));
-    out.push('\n');
+    let mut items = vec![
+        MenuItem::info(format!("{} Line -- live trains", line_label(line))),
+        MenuItem::info("=".repeat(40)),
+    ];
     if trains.is_empty() {
         if LINE_ORDER.contains(&line) {
-            out.push_str("\nNo trains currently reporting on this line.\n");
+            items.push(MenuItem::info(
+                "No trains currently reporting on this line.",
+            ));
         } else {
-            out.push_str(&format!("\nUnknown line '{line}'.\n"));
-            out.push_str("Known: red blue brn g org p pink y\n");
+            items.push(MenuItem::info(format!("Unknown line '{line}'.")));
+            items.push(MenuItem::info("Known: red blue brn g org p pink y"));
         }
-        return out;
+        return render_menu(&items);
     }
-    out.push_str(&format!("\n{} train(s) running:\n\n", trains.len()));
+    items.push(MenuItem::info(format!(
+        "{} train(s) running -- select one for details:",
+        trains.len()
+    )));
+    items.push(MenuItem::info(""));
     for t in trains {
         let mut flags = Vec::new();
         if t.approaching {
@@ -205,16 +233,75 @@ pub fn build_line_text(pos: &Positions, line: &str) -> String {
         } else {
             format!("  [{}]", flags.join(", "))
         };
-        let head = t
-            .heading
-            .map(|h| format!(" hdg {h:03}"))
-            .unwrap_or_default();
-        out.push_str(&format!("  Run {:<5} -> {}{}\n", t.run, t.dest, flag_str));
-        out.push_str(&format!(
-            "    next: {:<24}{}  ({:.5}, {:.5})\n",
-            t.next_station, head, t.lat, t.lon
+        let display = format!("Run {:<5} -> {}{}", t.run, t.dest, flag_str);
+        items.push(MenuItem::link(
+            ItemType::Menu,
+            display,
+            format!("/train/{}", t.run),
+            host,
+            port,
         ));
     }
+    if pos.from_fixture {
+        items.push(MenuItem::info(""));
+        items.push(MenuItem::info("(offline demo data from bundled fixture)"));
+    }
+    render_menu(&items)
+}
+
+/// Per-train detail page (type-0 text): identity, line/color, live position,
+/// heading, destination, and next stop with its predicted time. Reuses the
+/// current feed snapshot — no second fetch. An unknown/expired run returns a
+/// clean "no longer reporting" page rather than an error.
+pub fn build_train_text(pos: &Positions, run_id: &str) -> String {
+    let Some(t) = pos.trains.iter().find(|t| t.run == run_id) else {
+        let mut out = String::new();
+        out.push_str(&format!("Run {run_id} -- no longer reporting\n"));
+        out.push_str(&"=".repeat(40));
+        out.push_str("\n\nThis run is not in the current live feed. It may have finished\n");
+        out.push_str("its trip, gone out of service, or changed run number.\n\n");
+        out.push_str("Head back to the line listing to pick another train.\n");
+        return out;
+    };
+
+    let status = if t.delayed {
+        "DELAYED".to_string()
+    } else if t.approaching {
+        format!("approaching {}", t.next_station)
+    } else {
+        "en route".to_string()
+    };
+    let heading = t
+        .heading
+        .map(|h| format!("{h:03}"))
+        .unwrap_or_else(|| "unknown".into());
+    let next = match &t.arr_time {
+        Some(arr) => format!("{}  (predicted {arr})", t.next_station),
+        None => t.next_station.clone(),
+    };
+
+    let mut out = String::new();
+    out.push_str(&format!("Run {} -- {} Line\n", t.run, line_label(&t.line)));
+    out.push_str(&"=".repeat(40));
+    out.push('\n');
+    out.push('\n');
+    out.push_str(&format!(
+        "line:        {} ({})\n",
+        line_label(&t.line),
+        line_color(&t.line)
+    ));
+    out.push_str(&format!("status:      {status}\n"));
+    out.push_str(&format!("destination: {}\n", t.dest));
+    out.push_str(&format!(
+        "position:    {:.5}, {:.5}   heading {heading}\n",
+        t.lat, t.lon
+    ));
+    out.push_str(&format!("next stop:   {next}\n"));
+    out.push_str(
+        "\nThe CTA positions feed reports only the next stop, so the full\n\
+         upcoming-stop sequence isn't available here without a separate\n\
+         per-station query.\n",
+    );
     if pos.from_fixture {
         out.push_str("\n(offline demo data from bundled fixture)\n");
     }
@@ -363,20 +450,58 @@ mod tests {
     }
 
     #[test]
-    fn line_text_lists_red_trains() {
+    fn line_menu_lists_red_trains_as_clickable_items() {
         let pos = fixture_positions();
-        let text = build_line_text(&pos, "red");
-        assert!(text.starts_with("Red Line"));
-        assert!(text.contains("5 train(s) running"));
-        assert!(text.contains("Run 801"));
-        assert!(text.contains("Howard"));
+        let menu = build_line_menu(&pos, "red", "h", 70);
+        assert!(menu.ends_with(".\r\n"));
+        assert!(menu.contains("Red Line -- live trains"));
+        assert!(menu.contains("5 train(s) running"));
+        // Each run is a type-1 (menu) line pointing at /train/<run> on this host.
+        assert!(menu.contains("1Run 801"));
+        assert!(menu.contains("\t/train/801\th\t70\r\n"));
+        // All five red runs should be drill-down links.
+        for run in ["801", "812", "823", "834", "845"] {
+            assert!(
+                menu.contains(&format!("/train/{run}\t")),
+                "missing /train/{run}"
+            );
+        }
     }
 
     #[test]
-    fn line_text_unknown_line() {
+    fn line_menu_unknown_line() {
         let pos = fixture_positions();
-        let text = build_line_text(&pos, "chartreuse");
-        assert!(text.contains("Unknown line"));
+        let menu = build_line_menu(&pos, "chartreuse", "h", 70);
+        assert!(menu.ends_with(".\r\n"));
+        assert!(menu.contains("Unknown line"));
+    }
+
+    #[test]
+    fn train_detail_valid_id() {
+        let pos = fixture_positions();
+        let text = build_train_text(&pos, "801");
+        assert!(text.starts_with("Run 801 -- Red Line"));
+        assert!(text.contains("line:        Red (#c60c30)"));
+        assert!(text.contains("destination: Howard"));
+        assert!(text.contains("next stop:   Loyola"));
+        assert!(text.contains("predicted 2026-06-21T02:17:00")); // arrT
+        assert!(text.contains("heading 358"));
+    }
+
+    #[test]
+    fn train_detail_approaching_status() {
+        let pos = fixture_positions();
+        // Run 812 has isApp=1 in the fixture.
+        let text = build_train_text(&pos, "812");
+        assert!(text.contains("status:      approaching"));
+    }
+
+    #[test]
+    fn train_detail_unknown_id() {
+        let pos = fixture_positions();
+        let text = build_train_text(&pos, "9999");
+        assert!(text.starts_with("Run 9999 -- no longer reporting"));
+        assert!(!text.contains("position:"));
     }
 
     #[test]
