@@ -90,6 +90,32 @@ impl Canvas {
         }
         out
     }
+
+    /// Like [`render`], but wraps each non-blank cell in an ANSI 256-colour SGR
+    /// taken from `colors` (same row-major `wc*hc` layout as the grid; `0` =
+    /// leave default). For the colour (`.ansi`) map variant; strict clients use
+    /// [`render`]. Empty cells stay uncoloured so the canvas keeps fixed width.
+    pub fn render_colored(&self, colors: &[u8]) -> String {
+        debug_assert_eq!(colors.len(), self.cells.len());
+        let mut out = String::with_capacity(self.hc * (self.wc + 1) * 2);
+        for cy in 0..self.hc {
+            for cx in 0..self.wc {
+                let idx = cy * self.wc + cx;
+                let bits = self.cells[idx] as u32;
+                let ch = char::from_u32(BRAILLE_BASE + bits).unwrap_or('?');
+                let color = colors.get(idx).copied().unwrap_or(0);
+                if bits != 0 && color != 0 {
+                    out.push_str(&format!("\x1b[38;5;{color}m{ch}\x1b[0m"));
+                } else {
+                    out.push(ch);
+                }
+            }
+            if cy + 1 < self.hc {
+                out.push('\n');
+            }
+        }
+        out
+    }
 }
 
 #[cfg(test)]

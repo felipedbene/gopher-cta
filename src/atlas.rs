@@ -25,7 +25,7 @@
 use serde::Deserialize;
 
 use crate::project::{self, Geometry};
-use crate::render::{line_label, LINE_ORDER};
+use crate::render::{line_ansi256, line_label, LINE_ORDER};
 use crate::transit::Positions;
 
 /// The overlay scene, compiled in so the fetcher needs no data file at runtime
@@ -44,6 +44,11 @@ const PRIO_LABEL: u8 = 7;
 /// Identifies the body of water for any viewer, written down the open lake east
 /// of the coastline (the bbox is widened east to make room).
 const LAKE_LABEL: &str = "LAKE MICHIGAN";
+
+// ANSI 256-colour codes for the static layers in the `.ansi` variant (trains
+// take their CTA line colour). `0` = uncoloured.
+const WATER_COLOR: u8 = 44; // cyan: shoreline + lake label
+const LANDMARK_COLOR: u8 = 250; // light grey, so coloured trains pop
 
 /// On-grid ASCII markers. Single-width on every client; no emoji/CJK glyphs to
 /// shear the fixed-width grid, and readable on non-UTF-8 gopher clients.
@@ -123,6 +128,7 @@ struct CharGrid {
     hc: usize,
     cells: Vec<char>,
     prio: Vec<u8>,
+    color: Vec<u8>,
 }
 
 impl CharGrid {
@@ -132,13 +138,15 @@ impl CharGrid {
             hc,
             cells: vec![' '; wc * hc],
             prio: vec![0u8; wc * hc],
+            color: vec![0u8; wc * hc],
         }
     }
 
-    /// Paint `glyph` at `(col, row)` if `priority` is at least the cell's current
-    /// layer. Out-of-frame cells — including negative coords from off-bbox geo —
-    /// are clipped, so callers never need bounds bookkeeping.
-    fn put(&mut self, col: i32, row: i32, glyph: char, priority: u8) {
+    /// Paint `glyph` (with ANSI 256-colour `color`, `0` = none) at `(col, row)`
+    /// if `priority` is at least the cell's current layer. Out-of-frame cells —
+    /// including negative coords from off-bbox geo — are clipped, so callers
+    /// never need bounds bookkeeping.
+    fn put(&mut self, col: i32, row: i32, glyph: char, priority: u8, color: u8) {
         if col < 0 || row < 0 {
             return;
         }
@@ -150,6 +158,7 @@ impl CharGrid {
         if priority >= self.prio[i] {
             self.cells[i] = glyph;
             self.prio[i] = priority;
+            self.color[i] = color;
         }
     }
 
@@ -159,6 +168,33 @@ impl CharGrid {
         for r in 0..self.hc {
             let row: String = self.cells[r * self.wc..(r + 1) * self.wc].iter().collect();
             out.push_str(row.trim_end());
+            if r + 1 < self.hc {
+                out.push('\n');
+            }
+        }
+        out
+    }
+
+    /// As [`render`], but each coloured cell is wrapped in an ANSI 256-colour SGR
+    /// (cells with colour `0` stay plain). For the atlas `.ansi` variant.
+    fn render_ansi(&self) -> String {
+        let mut out = String::with_capacity(self.hc * (self.wc + 1) * 2);
+        for r in 0..self.hc {
+            let row = &self.cells[r * self.wc..(r + 1) * self.wc];
+            // Trim trailing blanks: emit up to the last non-space cell.
+            let last = row.iter().rposition(|&c| c != ' ');
+            if let Some(last) = last {
+                for c in 0..=last {
+                    let i = r * self.wc + c;
+                    let ch = self.cells[i];
+                    let col = self.color[i];
+                    if ch != ' ' && col != 0 {
+                        out.push_str(&format!("\x1b[38;5;{col}m{ch}\x1b[0m"));
+                    } else {
+                        out.push(ch);
+                    }
+                }
+            }
             if r + 1 < self.hc {
                 out.push('\n');
             }
@@ -229,7 +265,7 @@ impl Atlas {
                 project_cell(seg[1][0], seg[1][1], &geom),
             ) {
                 bresenham(c0, r0, c1, r1, |c, r| {
-                    base.put(c, r, SHORE_GLYPH, PRIO_SHORE)
+                    base.put(c, r, SHORE_GLYPH, PRIO_SHORE, WATER_COLOR)
                 });
             }
         }
@@ -238,7 +274,9 @@ impl Atlas {
         let mut off_map = Vec::new();
         for m in &geo.landmarks {
             match project_cell(m.lat, m.lon, &geom) {
-                Some((c, r)) => base.put(c, r, landmark_marker(m.id), PRIO_LANDMARK),
+                Some((c, r)) => {
+                    base.put(c, r, landmark_marker(m.id), PRIO_LANDMARK, LANDMARK_COLOR)
+                }
                 None => off_map.push(m.id),
             }
         }
@@ -250,7 +288,7 @@ impl Atlas {
         let start = (geom.hc as i32 - LAKE_LABEL.len() as i32) / 2;
         for (i, ch) in LAKE_LABEL.chars().enumerate() {
             if ch != ' ' {
-                base.put(col, start + i as i32, ch, PRIO_LABEL);
+                base.put(col, start + i as i32, ch, PRIO_LABEL, WATER_COLOR);
             }
         }
 
@@ -264,15 +302,33 @@ impl Atlas {
 
     /// Render the atlas page (plain text): clone the static base, paint live
     /// trains, then append the numbered landmark legend and per-line counts.
-    /// Trains outside the bbox are logged at debug level, mirroring the braille
-    /// map's drop diagnostic.
     pub fn render(&self, pos: &Positions, source_name: &str) -> String {
+        self.build_page(pos, source_name, false)
+    }
+
+    /// As [`render`], but ANSI-coloured (shoreline/label cyan, landmarks grey,
+    /// trains by CTA line). For the `atlas.ansi` selector; strict clients use
+    /// [`render`].
+    pub fn render_ansi(&self, pos: &Positions, source_name: &str) -> String {
+        self.build_page(pos, source_name, true)
+    }
+
+    /// Clone the static base, paint live trains, and assemble the page. Trains
+    /// outside the bbox are logged at debug level, mirroring the braille map's
+    /// drop diagnostic. The grid body is colourised when `ansi`.
+    fn build_page(&self, pos: &Positions, source_name: &str, ansi: bool) -> String {
         let mut grid = self.base.clone();
         let mut plotted = 0usize;
         let mut dropped: Vec<&str> = Vec::new();
         for t in &pos.trains {
             if let Some((c, r)) = project_cell(t.lat, t.lon, &self.geom) {
-                grid.put(c, r, heading_glyph(t.heading), PRIO_TRAIN);
+                grid.put(
+                    c,
+                    r,
+                    heading_glyph(t.heading),
+                    PRIO_TRAIN,
+                    line_ansi256(&t.line),
+                );
                 plotted += 1;
             } else {
                 dropped.push(&t.run);
@@ -307,7 +363,11 @@ impl Atlas {
         out.push_str("view: north up; west = city, east = Lake Michigan\n");
         out.push_str(&"-".repeat(self.geom.wc.min(78)));
         out.push('\n');
-        out.push_str(&grid.render());
+        out.push_str(&if ansi {
+            grid.render_ansi()
+        } else {
+            grid.render()
+        });
         out.push('\n');
         out.push_str(&"-".repeat(self.geom.wc.min(78)));
         out.push('\n');
@@ -403,9 +463,9 @@ mod tests {
     #[test]
     fn char_grid_respects_priority() {
         let mut g = CharGrid::new(3, 3);
-        g.put(1, 1, SHORE_GLYPH, PRIO_SHORE);
-        g.put(1, 1, TRAIN_GLYPH, PRIO_TRAIN); // higher: wins
-        g.put(1, 1, 'A', PRIO_LANDMARK); // lower than train: ignored
+        g.put(1, 1, SHORE_GLYPH, PRIO_SHORE, WATER_COLOR);
+        g.put(1, 1, TRAIN_GLYPH, PRIO_TRAIN, 196); // higher: wins
+        g.put(1, 1, 'A', PRIO_LANDMARK, LANDMARK_COLOR); // lower than train: ignored
         assert!(g.render().contains(TRAIN_GLYPH));
         assert!(!g.render().contains('A'));
         assert!(!g.render().contains(SHORE_GLYPH));
@@ -414,10 +474,10 @@ mod tests {
     #[test]
     fn char_grid_clips_out_of_frame() {
         let mut g = CharGrid::new(2, 2);
-        g.put(-1, 0, 'x', PRIO_TRAIN); // negative col
-        g.put(0, 5, 'x', PRIO_TRAIN); // row past frame
-        g.put(9, 0, 'x', PRIO_TRAIN); // col past frame
-                                      // Nothing painted: every row trims to empty (just the inter-row newline).
+        g.put(-1, 0, 'x', PRIO_TRAIN, 0); // negative col
+        g.put(0, 5, 'x', PRIO_TRAIN, 0); // row past frame
+        g.put(9, 0, 'x', PRIO_TRAIN, 0); // col past frame
+                                         // Nothing painted: every row trims to empty (just the inter-row newline).
         assert!(!g.render().contains('x'));
         assert_eq!(g.render(), "\n");
     }
@@ -486,5 +546,18 @@ mod tests {
         // Per-line counts mirror the braille map.
         assert!(body.contains("legend (trains per line):"));
         assert!(body.contains("Red      5"));
+    }
+
+    #[test]
+    fn atlas_ansi_colours_grid_plain_does_not() {
+        let atlas = Atlas::build(project::geometry());
+        let plain = atlas.render(&fixture_positions(), "CTA 'L'");
+        let ansi = atlas.render_ansi(&fixture_positions(), "CTA 'L'");
+        assert!(!plain.contains('\x1b'), "plain atlas must be ESC-free");
+        // Shoreline is always drawn, so its water colour is always present.
+        assert!(ansi.contains("\x1b[38;5;44m"), "shoreline colour missing");
+        // Same plain legend in both.
+        assert!(ansi.contains("LANDMARKS"));
+        assert!(ansi.contains("18 trains plotted of 18 reporting"));
     }
 }

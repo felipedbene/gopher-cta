@@ -131,7 +131,9 @@ fn publish(
 /// Write the full navigable gopher tree for one snapshot:
 ///   index.gph            root menu (map link + one entry per line)
 ///   map.txt              braille map (text)
+///   map.ansi             braille map, ANSI-coloured by line
 ///   atlas.txt            char-cell geographic atlas: coast + landmarks + trains
+///   atlas.ansi           atlas, ANSI-coloured (trains by line)
 ///   dispatch.txt         AI dispatch summary + live feed stats
 ///   sitrep.txt           AI SITREP (alerts summary) for the home station
 ///   events.txt           AI event advisory
@@ -152,7 +154,12 @@ fn write_tree(
         render_menu_index(&render::root_menu(pos)),
     )?;
     fs::write(dir.join("map.txt"), render::map_page(pos, geo, source_name))?;
+    fs::write(
+        dir.join("map.ansi"),
+        render::map_page_ansi(pos, geo, source_name),
+    )?;
     fs::write(dir.join("atlas.txt"), atlas.render(pos, source_name))?;
+    fs::write(dir.join("atlas.ansi"), atlas.render_ansi(pos, source_name))?;
     // Narrative panels (last-good snapshot; renders placeholders if never
     // retrieved). `now` once so all three pages share a consistent age.
     let now = narration::now_secs();
@@ -342,6 +349,14 @@ mod tests {
         let atlas_txt = fs::read_to_string(link.join("atlas.txt")).unwrap();
         assert!(atlas_txt.contains("geographic atlas"));
         assert!(atlas_txt.contains("LANDMARKS"));
+
+        // ANSI colour variants published, and they actually carry SGR codes
+        assert!(fs::read_to_string(link.join("map.ansi"))
+            .unwrap()
+            .contains("\x1b[38;5;"));
+        assert!(fs::read_to_string(link.join("atlas.ansi"))
+            .unwrap()
+            .contains("\x1b[38;5;"));
 
         // the narrative panels are published (placeholders without a live Worker)
         assert!(fs::read_to_string(link.join("dispatch.txt"))

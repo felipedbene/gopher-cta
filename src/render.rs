@@ -50,6 +50,23 @@ pub fn line_color(key: &str) -> &'static str {
     }
 }
 
+/// ANSI 256-colour code approximating each CTA line's brand colour, for the
+/// colour (`.ansi`) map variants. `0` would mean "no colour", so every line maps
+/// to a real code.
+pub fn line_ansi256(key: &str) -> u8 {
+    match key {
+        "red" => 196,
+        "blue" => 39,
+        "brn" => 130,
+        "g" => 40,
+        "org" => 208,
+        "p" | "pexp" => 93,
+        "pink" => 213,
+        "y" => 226,
+        _ => 244,
+    }
+}
+
 /// 8-point compass label for a heading in degrees (0 = N, clockwise). Diagonals
 /// included, so `045 -> NE`, `358 -> N`.
 pub fn cardinal8(deg: u16) -> &'static str {
@@ -111,6 +128,8 @@ pub fn root_menu(pos: &Positions) -> Vec<Entry> {
             "Geographic atlas (coast + landmarks)",
             "/atlas.txt",
         ),
+        link(ItemKind::Text, "  -> colour (ANSI): map", "/map.ansi"),
+        link(ItemKind::Text, "  -> colour (ANSI): atlas", "/atlas.ansi"),
         info(""),
         link(
             ItemKind::Text,
@@ -252,12 +271,25 @@ pub fn train_page(pos: &Positions, run_id: &str) -> String {
 /// Trains that fail to plot (null coords / outside bbox) are logged at debug
 /// level rather than silently dropped.
 pub fn map_page(pos: &Positions, geo: &Geometry, source_name: &str) -> String {
+    map_page_inner(pos, geo, source_name, false)
+}
+
+/// As [`map_page`], but ANSI-coloured: each plotted cell takes the colour of the
+/// (last) train in it. For the `.ansi` selector; strict clients use [`map_page`].
+pub fn map_page_ansi(pos: &Positions, geo: &Geometry, source_name: &str) -> String {
+    map_page_inner(pos, geo, source_name, true)
+}
+
+fn map_page_inner(pos: &Positions, geo: &Geometry, source_name: &str, ansi: bool) -> String {
     let mut canvas = Canvas::new(geo.wc, geo.hc);
+    let mut colors = vec![0u8; geo.wc * geo.hc];
     let mut plotted = 0usize;
     let mut dropped: Vec<&str> = Vec::new();
     for t in &pos.trains {
         if let Some((px, py)) = project::project(t.lat, t.lon, geo) {
             canvas.set(px, py);
+            // Cell colour = the line of the last train to fall in it.
+            colors[(py / 4) * geo.wc + (px / 2)] = line_ansi256(&t.line);
             plotted += 1;
         } else {
             dropped.push(&t.run);
@@ -289,7 +321,11 @@ pub fn map_page(pos: &Positions, geo: &Geometry, source_name: &str) -> String {
     ));
     out.push_str(&"-".repeat(geo.wc.min(78)));
     out.push('\n');
-    out.push_str(&canvas.render());
+    out.push_str(&if ansi {
+        canvas.render_colored(&colors)
+    } else {
+        canvas.render()
+    });
     out.push('\n');
     out.push_str(&"-".repeat(geo.wc.min(78)));
     out.push('\n');
@@ -420,6 +456,26 @@ mod tests {
         assert!(text.contains("18 trains plotted of 18 reporting"));
         assert!(text.contains("legend"));
         assert!(text.contains("offline fixture"));
+    }
+
+    #[test]
+    fn map_ansi_colours_braille_plain_does_not() {
+        let geo = project::geometry();
+        let plain = map_page(&fixture_positions(), &geo, "CTA 'L'");
+        let ansi = map_page_ansi(&fixture_positions(), &geo, "CTA 'L'");
+        assert!(!plain.contains('\x1b'), "plain map must be ESC-free");
+        assert!(ansi.contains("\x1b[38;5;"), "ansi map must carry SGR codes");
+        // still a braille plot underneath
+        assert!(ansi
+            .chars()
+            .any(|c| (0x2800..=0x28FF).contains(&(c as u32))));
+    }
+
+    #[test]
+    fn line_ansi256_distinct_per_line() {
+        assert_eq!(line_ansi256("red"), 196);
+        assert_ne!(line_ansi256("red"), line_ansi256("blue"));
+        assert_eq!(line_ansi256("unknown"), 244);
     }
 
     #[test]
