@@ -14,6 +14,31 @@ Written in Rust, minimal deps. No protocol server of its own.
                                   geomyidae serves <out>/current
 ```
 
+## Quickstart (local, with Docker)
+
+Clone → browsing, no native geomyidae needed. Fixture mode (no key); add
+`-e CTA_TRAIN_API_KEY=<key>` for live data.
+
+```sh
+# 1. render the gopher tree into ./public
+docker build -t gopher-cta:local .
+docker run --rm -e CTA_TRAIN_API_KEY= -v "$PWD/public":/srv gopher-cta:local --once --out /srv
+
+# 2. serve it with geomyidae
+docker build -t geomyidae:local -f deploy/Dockerfile.geomyidae deploy
+docker run --rm -d --name geo -p 7070:7070 -v "$PWD/public":/srv:ro geomyidae:local
+
+# 3. consume it
+printf '/red\r\n' | nc localhost 7070        # per-line drill-down
+curl gopher://localhost:7070/0/map.txt       # the braille map
+lynx gopher://localhost:7070                  # browse interactively
+
+docker rm -f geo                              # stop the daemon
+```
+
+Already have `geomyidae` installed? Skip Docker: `cargo run -- --once --out ./public`
+then `geomyidae -b ./public/current -p 7070`. Full options below.
+
 ## The published tree
 
 The fetcher writes this under each snapshot (the daemon serves `current/`):
