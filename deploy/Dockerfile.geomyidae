@@ -8,7 +8,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates gcc make libc6-dev \
  && rm -rf /var/lib/apt/lists/*
 # Pin a ref for reproducibility if you like (e.g. a tag/commit); default is tip.
-ARG GEOMYIDAE_REF=master
+ARG GEOMYIDAE_REF=v0.99
 # Disable the optional gophers/TLS support (empty TLS_*FLAGS): we don't serve
 # gophers, and this drops the libtls/libssl/libcrypto runtime deps, so the
 # runtime image needs only libc.
