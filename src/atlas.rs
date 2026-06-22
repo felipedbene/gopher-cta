@@ -8,7 +8,8 @@
 //! Markers are **plain ASCII** for portability across old/non-UTF-8 gopher
 //! clients (and to dodge double-width emoji/CJK glyphs that would shear the
 //! grid): shoreline `#`, each landmark a letter `A`–`N` keyed by its id, live
-//! trains `o`. The legend maps letters to names.
+//! trains as a 4-way heading arrow `^ > v <` (`o` when the feed reports no
+//! heading). The legend maps letters to names.
 //!
 //! Pixel-locked to the trains: cells come from the SAME [`project::project`] the
 //! braille map uses, collapsed from braille-pixel to char-cell `(px/2, py/4)`.
@@ -46,6 +47,21 @@ const TRAIN_GLYPH: char = 'o';
 /// 1..=14 so this stays within A..N; the legend maps letters back to names.
 fn landmark_marker(id: u32) -> char {
     (b'A' + (id.saturating_sub(1) % 26) as u8) as char
+}
+
+/// On-grid marker for a train: a 4-way ASCII heading arrow (`^ > v <`), so the
+/// direction of travel reads on any client. Diagonals round to the nearest
+/// cardinal; `o` when the feed reports no heading.
+fn heading_glyph(heading: Option<u16>) -> char {
+    match heading {
+        None => TRAIN_GLYPH,
+        Some(deg) => match deg % 360 {
+            315..=359 | 0..=44 => '^', // N
+            45..=134 => '>',           // E
+            135..=224 => 'v',          // S
+            _ => '<',                  // W (225..=314)
+        },
+    }
 }
 
 // ---------- overlay data model (parsed from chicago_geo.json) ----------
@@ -238,7 +254,7 @@ impl Atlas {
         let mut dropped: Vec<&str> = Vec::new();
         for t in &pos.trains {
             if let Some((c, r)) = project_cell(t.lat, t.lon, &self.geom) {
-                grid.put(c, r, TRAIN_GLYPH, PRIO_TRAIN);
+                grid.put(c, r, heading_glyph(t.heading), PRIO_TRAIN);
                 plotted += 1;
             } else {
                 dropped.push(&t.run);
@@ -353,6 +369,16 @@ mod tests {
         assert_eq!(landmark_marker(14), 'N');
     }
 
+    #[test]
+    fn heading_glyphs_are_cardinal() {
+        assert_eq!(heading_glyph(Some(0)), '^');
+        assert_eq!(heading_glyph(Some(358)), '^');
+        assert_eq!(heading_glyph(Some(90)), '>');
+        assert_eq!(heading_glyph(Some(180)), 'v');
+        assert_eq!(heading_glyph(Some(270)), '<');
+        assert_eq!(heading_glyph(None), 'o');
+    }
+
     // -- char grid layering --
 
     #[test]
@@ -410,7 +436,10 @@ mod tests {
         let atlas = Atlas::build(project::geometry());
         let body = atlas.render(&fixture_positions(), "CTA 'L'");
         assert!(body.starts_with("CTA 'L' -- geographic atlas"));
-        assert!(body.contains('o'), "train marker missing");
+        assert!(
+            ['^', '>', 'v', '<', 'o'].iter().any(|&c| body.contains(c)),
+            "no train heading marker on the grid"
+        );
         assert!(body.contains("18 trains plotted of 18 reporting"));
         assert!(body.contains("offline fixture"));
         // Legend present, keyed by the on-grid letter.

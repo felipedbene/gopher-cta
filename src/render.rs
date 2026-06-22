@@ -50,6 +50,13 @@ pub fn line_color(key: &str) -> &'static str {
     }
 }
 
+/// 8-point compass label for a heading in degrees (0 = N, clockwise). Diagonals
+/// included, so `045 -> NE`, `358 -> N`.
+pub fn cardinal8(deg: u16) -> &'static str {
+    const PTS: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+    PTS[(((deg % 360) as u32 + 22) / 45 % 8) as usize]
+}
+
 /// Gopher item type for a link. Daemon-agnostic; serialized per-daemon elsewhere.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemKind {
@@ -206,7 +213,7 @@ pub fn train_page(pos: &Positions, run_id: &str) -> String {
     };
     let heading = t
         .heading
-        .map(|h| format!("{h:03}"))
+        .map(|h| format!("{h:03} ({})", cardinal8(h)))
         .unwrap_or_else(|| "unknown".into());
     let next = match &t.arr_time {
         Some(arr) => format!("{}  (predicted {arr})", t.next_station),
@@ -436,7 +443,17 @@ mod tests {
         assert!(text.contains("destination: Howard"));
         assert!(text.contains("next stop:   Loyola"));
         assert!(text.contains("predicted 2026-06-21T02:17:00"));
-        assert!(text.contains("heading 358"));
+        assert!(text.contains("heading 358 (N)"));
+    }
+
+    #[test]
+    fn cardinal8_points() {
+        assert_eq!(cardinal8(0), "N");
+        assert_eq!(cardinal8(358), "N");
+        assert_eq!(cardinal8(45), "NE");
+        assert_eq!(cardinal8(90), "E");
+        assert_eq!(cardinal8(180), "S");
+        assert_eq!(cardinal8(270), "W");
     }
 
     #[test]
