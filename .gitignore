@@ -5,3 +5,8 @@ Cargo.lock
 .env
 nohup.out
 /public
+docker-compose.override.yml
+docker-compose.override.yml
+docker-compose.override.yml
+docker-compose.override.yml
+docker-compose.override.yml

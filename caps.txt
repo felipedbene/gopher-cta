@@ -17,7 +17,7 @@ PathKeepPreDelimeter=FALSE
 # --- Server section ---
 ServerSoftware=geomyidae
 ServerSoftwareVersion=0.99
-ServerArchitecture=Linux/aarch64
+ServerArchitecture=Linux/x86_64
 ServerDescription=CTA transit data over Gopher — live Chicago Transit Authority feeds
 ServerGeolocationString=Chicago, Illinois, USA
 ServerAdmin=gopher@debene.dev
