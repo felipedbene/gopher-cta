@@ -105,6 +105,14 @@ pub fn root_menu(pos: &Positions) -> Vec<Entry> {
             "/atlas.txt",
         ),
         info(""),
+        link(
+            ItemKind::Text,
+            "Dispatch (summary + feed stats)",
+            "/dispatch.txt",
+        ),
+        link(ItemKind::Text, "SITREP (AI alerts summary)", "/sitrep.txt"),
+        link(ItemKind::Text, "Event advisory (AI)", "/events.txt"),
+        info(""),
         info("Trains by line:"),
     ];
     for &key in LINE_ORDER {

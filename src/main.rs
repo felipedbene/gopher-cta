@@ -13,6 +13,7 @@
 mod atlas;
 mod braille;
 mod fetch;
+mod narration;
 mod project;
 mod render;
 mod transit;
