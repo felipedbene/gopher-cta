@@ -10,6 +10,7 @@
 mod braille;
 mod project;
 mod protocol;
+mod render;
 mod server;
 mod transit;
 
