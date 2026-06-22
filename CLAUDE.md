@@ -107,7 +107,13 @@ isn't in ghcr. Don't go looking in the cluster.
 Actual setup (`gopher://10.0.10.69:7070`):
 1. `geo` — `geomyidae:local`, `-p 7070:7070`, mounts repo `public/ -> /srv`,
    serves `/srv/current`. Long-running; serves whatever the fetcher writes, **no
-   restart needed** when the tree updates.
+   restart needed** when the tree updates. **Must be started with `-h 10.0.10.69`**
+   (`docker run --rm -d --name geo -p 7070:7070 -v <repo>/public:/srv:ro
+   geomyidae:local -h 10.0.10.69`) — without `-h`, geomyidae substitutes the
+   `.gph` `server` placeholder with its container hostname, so every menu link
+   advertises an unreachable host and link-following breaks (direct
+   `curl …/0/map.txt` still works because the client supplies the host). The
+   image ENTRYPOINT already bakes in `-d -b /srv/current -p 7070`; append only `-h`.
 2. `gopher-cta-fetcher` — the fetcher, `--env-file .env -v <repo>/public:/srv
    --interval 30`, regenerates the tree (live trains + narration) every 30s.
 
