@@ -1,19 +1,22 @@
 # Local validation stack for gopher-cta (felipe's Mac Studio, 10.0.10.69).
 #
-#   docker compose up -d            # start (reuses cached images)
-#   docker compose up -d --build    # rebuild after a code change, then restart
-#   docker compose logs -f fetcher  # watch publishes / narration polls
-#   docker compose down             # stop & remove
+#   docker compose pull && docker compose up -d   # run the CI-published image
+#   docker compose up -d --build                  # local build instead (dev)
+#   docker compose logs -f fetcher                # watch publishes / narration
+#   docker compose down                           # stop & remove
 #
-# The fetcher writes the gopher tree into ./public every 30s (live trains + AI
-# narration); geomyidae serves ./public/current. `restart: unless-stopped` brings
-# both back after a reboot. geomyidae's -h (from .env GOPHER_HOST) makes menu
-# links advertise the reachable host instead of the container id — without it,
-# link-following breaks.
+# The fetcher image is published by CI (GitHub Actions -> GHCR, multi-arch
+# amd64+arm64), so `pull` gets a native image. `build:` stays as a dev fallback
+# (`--build` rebuilds from source). The fetcher writes the gopher tree into
+# ./public every 30s (live trains + AI narration); geomyidae serves
+# ./public/current. `restart: unless-stopped` brings both back after a reboot.
+# geomyidae's -h (from .env GOPHER_HOST) makes menu links advertise the reachable
+# host instead of the container id — without it, link-following breaks.
 services:
   fetcher:
-    build: .
     image: ghcr.io/felipedbene/gopher-cta:latest
+    build: .                              # dev fallback: `compose up -d --build`
+    pull_policy: always                   # `compose up` re-pulls :latest from GHCR
     container_name: gopher-cta-fetcher
     env_file: .env                       # CTA_TRAIN_API_KEY (+ optional CTA_AI_BASE / CTA_HOME_*)
     command: ["--interval", "30", "--out", "/srv"]
