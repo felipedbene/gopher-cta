@@ -1,7 +1,8 @@
 # CLAUDE.md — gopher-cta
 
 Working notes so a session doesn't re-derive what's already known. If something
-here is wrong, fix it here as you go.
+here is wrong, fix it here as you go. Fuller architecture (current + future, k8s
+plan, roadmap) lives in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## What this is
 
