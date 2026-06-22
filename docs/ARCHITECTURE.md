@@ -86,7 +86,7 @@ Two design choices drive everything:
 |------|------|---------|
 | `index.gph` | menu | root: links to every surface + per-line counts |
 | `map.txt` | text | braille geographic plot of live trains (high-res, monochrome) |
-| `atlas.txt` | text | char-cell map: shoreline ▓ + landmark glyphs + trains ●, numbered legend |
+| `atlas.txt` | text | char-cell map: shoreline `#` + landmarks `A`–`N` (by id) + trains `o`, ASCII for portability, lettered legend |
 | `dispatch.txt` | text | AI one-liner + authoritative feed stats |
 | `sitrep.txt` | text | AI alerts summary for the home station |
 | `events.txt` | text | AI event advisory |

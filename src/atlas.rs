@@ -3,8 +3,12 @@
 //! The braille map (`map.txt`) is a monochrome dot field — it shows *where*
 //! trains are but not *what* city is under them. This atlas renders the same
 //! projected scene on a one-glyph-per-cell character grid, so distinct features
-//! (lake shoreline, landmarks, trains) read as distinct symbols, disambiguated
-//! by a numbered legend below the map.
+//! read as distinct markers, disambiguated by a legend below the map.
+//!
+//! Markers are **plain ASCII** for portability across old/non-UTF-8 gopher
+//! clients (and to dodge double-width emoji/CJK glyphs that would shear the
+//! grid): shoreline `#`, each landmark a letter `A`–`N` keyed by its id, live
+//! trains `o`. The legend maps letters to names.
 //!
 //! Pixel-locked to the trains: cells come from the SAME [`project::project`] the
 //! braille map uses, collapsed from braille-pixel to char-cell `(px/2, py/4)`.
@@ -33,9 +37,16 @@ const PRIO_SHORE: u8 = 1;
 const PRIO_LANDMARK: u8 = 3;
 const PRIO_TRAIN: u8 = 5;
 
-/// Glyph for a live train on the atlas. All lines share it; the per-line legend
-/// below the map carries the counts.
-const TRAIN_GLYPH: char = '●';
+/// On-grid ASCII markers. Single-width on every client; no emoji/CJK glyphs to
+/// shear the fixed-width grid, and readable on non-UTF-8 gopher clients.
+const SHORE_GLYPH: char = '#';
+const TRAIN_GLYPH: char = 'o';
+
+/// On-grid marker for a landmark: a letter keyed by id (1→A, 2→B, …). Ids run
+/// 1..=14 so this stays within A..N; the legend maps letters back to names.
+fn landmark_marker(id: u32) -> char {
+    (b'A' + (id.saturating_sub(1) % 26) as u8) as char
+}
 
 // ---------- overlay data model (parsed from chicago_geo.json) ----------
 
@@ -54,7 +65,6 @@ pub struct Meta {
 #[derive(Debug, Deserialize)]
 pub struct Shoreline {
     pub name: String,
-    pub glyph: char,
     /// `[lat, lon]` anchors, ordered north -> south.
     pub points: Vec<[f64; 2]>,
 }
@@ -65,7 +75,6 @@ pub struct Landmark {
     pub name: String,
     pub lat: f64,
     pub lon: f64,
-    pub glyph: char,
     /// Reserved for the per-landmark detail page (a deferred commit); parsed now
     /// so the overlay model stays complete.
     #[allow(dead_code)]
@@ -197,7 +206,7 @@ impl Atlas {
                 project_cell(seg[1][0], seg[1][1], &geom),
             ) {
                 bresenham(c0, r0, c1, r1, |c, r| {
-                    base.put(c, r, geo.shoreline.glyph, PRIO_SHORE)
+                    base.put(c, r, SHORE_GLYPH, PRIO_SHORE)
                 });
             }
         }
@@ -206,7 +215,7 @@ impl Atlas {
         let mut off_map = Vec::new();
         for m in &geo.landmarks {
             match project_cell(m.lat, m.lon, &geom) {
-                Some((c, r)) => base.put(c, r, m.glyph, PRIO_LANDMARK),
+                Some((c, r)) => base.put(c, r, landmark_marker(m.id), PRIO_LANDMARK),
                 None => off_map.push(m.id),
             }
         }
@@ -284,14 +293,19 @@ impl Atlas {
 
         // Numbered landmark legend (keyed by id; labels never go inline on the
         // grid, where they would collide on a char cell).
-        out.push_str("\nLANDMARKS\n");
+        out.push_str("\nLANDMARKS  (marker on the grid -> place)\n");
         for m in &self.geo.landmarks {
             let mark = if self.off_map.contains(&m.id) {
                 "  [off map]"
             } else {
                 ""
             };
-            out.push_str(&format!("  {:>2} {} {}{}\n", m.id, m.glyph, m.name, mark));
+            out.push_str(&format!(
+                "  {}  {}{}\n",
+                landmark_marker(m.id),
+                m.name,
+                mark
+            ));
         }
 
         // Per-line train counts (mirrors the braille map's legend).
@@ -326,14 +340,17 @@ mod tests {
         let geo = GeoData::load();
         assert_eq!(geo.shoreline.points.len(), 17);
         assert_eq!(geo.landmarks.len(), 14);
-        // Unicode escapes deserialize straight to `char`.
-        assert_eq!(geo.shoreline.glyph, '▓'); // U+2593
         let willis = geo.landmarks.iter().find(|m| m.id == 1).unwrap();
         assert_eq!(willis.name, "Willis Tower");
-        assert_eq!(willis.glyph, '▲'); // U+25B2
         let ohare = geo.landmarks.iter().find(|m| m.id == 14).unwrap();
-        assert_eq!(ohare.glyph, '✈'); // U+2708
         assert_eq!(ohare.category, "transit_hub");
+    }
+
+    #[test]
+    fn landmark_markers_are_letters_by_id() {
+        assert_eq!(landmark_marker(1), 'A');
+        assert_eq!(landmark_marker(5), 'E');
+        assert_eq!(landmark_marker(14), 'N');
     }
 
     // -- char grid layering --
@@ -341,12 +358,12 @@ mod tests {
     #[test]
     fn char_grid_respects_priority() {
         let mut g = CharGrid::new(3, 3);
-        g.put(1, 1, '░', PRIO_SHORE);
-        g.put(1, 1, '●', PRIO_TRAIN); // higher: wins
-        g.put(1, 1, '▲', PRIO_LANDMARK); // lower than train: ignored
-        assert!(g.render().contains('●'));
-        assert!(!g.render().contains('▲'));
-        assert!(!g.render().contains('░'));
+        g.put(1, 1, SHORE_GLYPH, PRIO_SHORE);
+        g.put(1, 1, TRAIN_GLYPH, PRIO_TRAIN); // higher: wins
+        g.put(1, 1, 'A', PRIO_LANDMARK); // lower than train: ignored
+        assert!(g.render().contains(TRAIN_GLYPH));
+        assert!(!g.render().contains('A'));
+        assert!(!g.render().contains(SHORE_GLYPH));
     }
 
     #[test]
@@ -380,12 +397,12 @@ mod tests {
         let atlas = Atlas::build(project::geometry());
         // No trains, so nothing overwrites the static layers.
         let body = atlas.render(&Positions::default(), "CTA 'L'");
-        assert!(body.contains('▓'), "shoreline glyph missing from grid");
-        assert!(body.contains('▲'), "Willis Tower glyph missing from grid");
+        assert!(body.contains('#'), "shoreline marker missing from grid");
+        assert!(body.contains('A'), "Willis Tower marker missing from grid");
         assert!(body.contains("0 trains plotted of 0 reporting"));
         // O'Hare sits just west of the bbox and is reported off-map.
         assert!(body.contains("14 landmarks (1 off current bbox)"));
-        assert!(body.contains("14 ✈ O'Hare (ORD)  [off map]"));
+        assert!(body.contains("  N  O'Hare (ORD)  [off map]"));
     }
 
     #[test]
@@ -393,12 +410,12 @@ mod tests {
         let atlas = Atlas::build(project::geometry());
         let body = atlas.render(&fixture_positions(), "CTA 'L'");
         assert!(body.starts_with("CTA 'L' -- geographic atlas"));
-        assert!(body.contains('●'), "train glyph missing");
+        assert!(body.contains('o'), "train marker missing");
         assert!(body.contains("18 trains plotted of 18 reporting"));
         assert!(body.contains("offline fixture"));
-        // Numbered legend present and keyed by id.
+        // Legend present, keyed by the on-grid letter.
         assert!(body.contains("LANDMARKS"));
-        assert!(body.contains(" 1 ▲ Willis Tower"));
+        assert!(body.contains("  A  Willis Tower"));
         // Per-line counts mirror the braille map.
         assert!(body.contains("legend (trains per line):"));
         assert!(body.contains("Red      5"));
