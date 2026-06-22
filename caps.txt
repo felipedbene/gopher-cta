@@ -1,0 +1,24 @@
+CAPS
+
+# caps.txt — capability + server info policy file
+# Served at gopher selector: caps.txt  (UTF-8, CRLF line endings)
+
+CapsVersion=1
+ExpireCapsAfter=3600
+
+# --- Path section: POSIX defaults (spellings are spec-canonical, leave as-is) ---
+PathDelimeter=/
+PathIdentity=.
+PathParent=..
+PathParentDouble=FALSE
+PathEscapeCharacter=\\
+PathKeepPreDelimeter=FALSE
+
+# --- Server section ---
+ServerSoftware=geomyidae
+ServerSoftwareVersion=0.99
+ServerArchitecture=Linux/aarch64
+ServerDescription=CTA transit data over Gopher — live Chicago Transit Authority feeds
+ServerGeolocationString=Chicago, Illinois, USA
+ServerAdmin=gopher@debene.dev
+DefaultEncoding=utf-8

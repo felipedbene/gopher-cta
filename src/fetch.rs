@@ -25,6 +25,11 @@ use crate::transit::{Positions, TransitSource};
 /// Published snapshots to retain (besides whatever `current` resolves to).
 const KEEP_SNAPSHOTS: usize = 3;
 
+/// The GopherII caps policy file, embedded byte-for-byte so its CRLF line
+/// endings are preserved exactly (`include_bytes!`, not `include_str!`). Served
+/// verbatim by geomyidae at the `caps.txt` selector.
+const CAPS_TXT: &[u8] = include_bytes!("../caps.txt");
+
 /// Fetcher configuration, parsed from CLI args / env.
 pub struct Config {
     pub out: PathBuf,
@@ -138,6 +143,7 @@ fn publish(
 ///   sitrep.txt           AI SITREP (alerts summary) for the home station
 ///   events.txt           AI event advisory
 ///   about.txt            about page (text)
+///   caps.txt             GopherII caps policy file (verbatim, CRLF)
 ///   <line>/index.gph     per-line menu, each train a drill-down link
 ///   train/<run>.txt      per-train detail page (text)
 ///   landmarks/index.gph  type-1 menu of Chicago landmarks
@@ -178,6 +184,10 @@ fn write_tree(
         narration::events_page(narration, now),
     )?;
     fs::write(dir.join("about.txt"), render::about_page())?;
+    // GopherII/Floodgap caps policy file. Written byte-for-byte (CRLF preserved)
+    // into every snapshot so it survives the atomic republish — geomyidae serves
+    // it verbatim at the `caps.txt` selector. Authored content, not generated.
+    fs::write(dir.join("caps.txt"), CAPS_TXT)?;
 
     // One submenu directory per line (its index.gph is the per-line listing).
     for &line in render::LINE_ORDER {
@@ -481,6 +491,23 @@ mod tests {
         // a detail page per running train (18 in the fixture)
         let n = fs::read_dir(snap.join("train")).unwrap().count();
         assert_eq!(n, pos.trains.len());
+
+        // caps.txt is published verbatim with CRLF and the literal CAPS header.
+        let caps = fs::read(snap.join("caps.txt")).unwrap();
+        assert!(
+            caps.starts_with(b"CAPS\r\n"),
+            "caps.txt must start CAPS+CRLF"
+        );
+        assert!(
+            caps.windows(2).any(|w| w == b"\r\n"),
+            "caps.txt must be CRLF"
+        );
+        let caps_s = String::from_utf8_lossy(&caps);
+        assert!(caps_s.contains("CapsVersion=1"));
+        assert!(caps_s.contains("ServerSoftware=geomyidae"));
+        // canonical (mis)spellings preserved
+        assert!(caps_s.contains("PathDelimeter=/"));
+        assert!(caps_s.contains("PathKeepPreDelimeter=FALSE"));
 
         // landmarks: root links the menu; the menu drills into a detail page;
         // the page exists with matching content.
