@@ -34,9 +34,16 @@ const GEO_JSON: &str = include_str!("../chicago_geo.json");
 
 // Z-order priorities. The gaps (2, 4) are where track / station layers would
 // slot in if the overlay ever carried that geometry — the feed doesn't today.
+// The water label sits above everything so a stray near-shore train can't break
+// it (it lives in open water east of the coast, so nothing else is there anyway).
 const PRIO_SHORE: u8 = 1;
 const PRIO_LANDMARK: u8 = 3;
 const PRIO_TRAIN: u8 = 5;
+const PRIO_LABEL: u8 = 7;
+
+/// Identifies the body of water for any viewer, written down the open lake east
+/// of the coastline (the bbox is widened east to make room).
+const LAKE_LABEL: &str = "LAKE MICHIGAN";
 
 /// On-grid ASCII markers. Single-width on every client; no emoji/CJK glyphs to
 /// shear the fixed-width grid, and readable on non-UTF-8 gopher clients.
@@ -236,6 +243,17 @@ impl Atlas {
             }
         }
 
+        // "LAKE MICHIGAN" down the far-east water column, vertically centered. The
+        // coast peaks well west of here, so these cells are open lake; the label
+        // reads as water (east of the coast) vs. landmark letters (west of it).
+        let col = geom.wc as i32 - 2;
+        let start = (geom.hc as i32 - LAKE_LABEL.len() as i32) / 2;
+        for (i, ch) in LAKE_LABEL.chars().enumerate() {
+            if ch != ' ' {
+                base.put(col, start + i as i32, ch, PRIO_LABEL);
+            }
+        }
+
         Atlas {
             geo,
             geom,
@@ -286,6 +304,7 @@ impl Atlas {
             "overlay: {} ({})\n",
             self.geo.meta.name, self.geo.shoreline.name
         ));
+        out.push_str("view: north up; west = city, east = Lake Michigan\n");
         out.push_str(&"-".repeat(self.geom.wc.min(78)));
         out.push('\n');
         out.push_str(&grid.render());
@@ -429,6 +448,25 @@ mod tests {
         // O'Hare sits just west of the bbox and is reported off-map.
         assert!(body.contains("14 landmarks (1 off current bbox)"));
         assert!(body.contains("  N  O'Hare (ORD)  [off map]"));
+    }
+
+    #[test]
+    fn atlas_labels_the_lake() {
+        let geom = project::geometry();
+        let atlas = Atlas::build(geom);
+        let body = atlas.render(&Positions::default(), "CTA 'L'");
+        assert!(body.contains("north up; west = city, east = Lake Michigan"));
+        // The label is painted vertically at column wc-2; read that column down
+        // the grid body (between the dashed rules) — it spells the lake's name.
+        let column: String = body
+            .lines()
+            .skip_while(|l| !l.starts_with("---"))
+            .skip(1)
+            .take_while(|l| !l.starts_with("---"))
+            .filter_map(|l| l.chars().nth(geom.wc - 2))
+            .filter(|c| *c != ' ')
+            .collect();
+        assert_eq!(column, "LAKEMICHIGAN");
     }
 
     #[test]
