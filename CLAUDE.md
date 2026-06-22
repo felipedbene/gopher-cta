@@ -98,17 +98,28 @@ does not allow user interaction"), and `gh auth token` lacks `write:packages`.
 So: **Claude builds + tags the image; felipe runs `docker push …` in his own
 Terminal** (his keychain has the working ghcr creds).
 
-k8s: `deploy/gopher-cta.yaml` is a 2-container pod (fetcher writes `/srv`,
-geomyidae serves `/srv/current`) + LoadBalancer. The committed manifest is
-"manifests only" and the **geomyidae image is NOT in ghcr yet** (build from
-`deploy/Dockerfile.geomyidae` for the k8s path).
+**The live deploy is NOT k8s — it's two local docker containers on felipe's Mac
+Studio** (this machine; its LAN IP is `10.0.10.69`). `deploy/gopher-cta.yaml`
+(k8s 2-container pod + LoadBalancer) exists but is unapplied; the geomyidae image
+isn't in ghcr. Don't go looking in the cluster.
 
-Cluster facts (context `kubernetes-admin@kubernetes`, API `10.0.10.100:6443`):
-nodes `10.0.10.{5,6,26,100,205}`, MetalLB pool `10.0.100.100-200`. Live gopher
-endpoint per felipe is `gopher://10.0.10.69:7070`. **I have not been able to
-locate the running workload via kubectl** (no pod/svc on 70/7070, `.69` is not a
-node or MetalLB IP). Don't re-search blind — **ask felipe for the namespace /
-manifest path.**
+Actual setup (`gopher://10.0.10.69:7070`):
+1. `geo` — `geomyidae:local`, `-p 7070:7070`, mounts repo `public/ -> /srv`,
+   serves `/srv/current`. Long-running; serves whatever the fetcher writes, **no
+   restart needed** when the tree updates.
+2. `gopher-cta-fetcher` — the fetcher, `--env-file .env -v <repo>/public:/srv
+   --interval 30`, regenerates the tree (live trains + narration) every 30s.
+
+To redeploy a code change: `felipe` pushes the image (keychain), then
+```sh
+docker rm -f gopher-cta-fetcher
+docker run -d --name gopher-cta-fetcher --env-file .env \
+  -v /Users/felipe/Projects/gopher-cta/public:/srv \
+  ghcr.io/felipedbene/gopher-cta:latest --interval 30 --out /srv
+```
+(geomyidae keeps running.) Image is amd64; runs under emulation on the arm Mac —
+fine, but an arm64 build would be leaner for local. If `public/current` is
+missing, no fetcher is running — that's the usual "0 bytes from gopher" cause.
 
 ## Conventions
 
@@ -124,7 +135,8 @@ manifest path.**
 
 ## Status (update as it changes)
 
-geo atlas (commit 1) + AI narration pages (commit 2) merged to `master`
-(`69dddae`); `ghcr.io/felipedbene/gopher-cta:latest` pushed. Pending: roll the
-k8s deployment and validate `0/dispatch.txt` live. Commit 3 (landmarks menu,
+geo atlas (commit 1) + AI narration pages (commit 2) merged to `master`;
+`ghcr.io/felipedbene/gopher-cta:latest` built+pushed and **deployed locally** —
+fetcher + geomyidae containers serving `gopher://10.0.10.69:7070`; dispatch /
+sitrep / events validated live. Commit 3 (landmarks type-1 menu + detail pages,
 ANSI map variant) not started.
