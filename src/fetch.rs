@@ -109,14 +109,93 @@ fn publish(out: &Path, pos: &Positions, geo: &Geometry, source_name: &str) -> io
     Ok(snap)
 }
 
-/// Write the static files for one snapshot.
-///
-/// COMMIT 2 writes the text pages; COMMIT 3 expands this to the full navigable
-/// tree (root + per-line menus, per-train pages) with the daemon's index format.
+/// Write the full navigable gopher tree for one snapshot:
+///   index.gph            root menu (map link + one entry per line)
+///   map.txt              braille map (text)
+///   about.txt            about page (text)
+///   <line>/index.gph     per-line menu, each train a drill-down link
+///   train/<run>.txt      per-train detail page (text)
 fn write_tree(dir: &Path, pos: &Positions, geo: &Geometry, source_name: &str) -> io::Result<()> {
+    // Root menu + top-level text pages.
+    fs::write(
+        dir.join("index.gph"),
+        render_menu_index(&render::root_menu(pos)),
+    )?;
     fs::write(dir.join("map.txt"), render::map_page(pos, geo, source_name))?;
     fs::write(dir.join("about.txt"), render::about_page())?;
+
+    // One submenu directory per line (its index.gph is the per-line listing).
+    for &line in render::LINE_ORDER {
+        let ldir = dir.join(line);
+        fs::create_dir_all(&ldir)?;
+        fs::write(
+            ldir.join("index.gph"),
+            render_menu_index(&render::line_menu(pos, line)),
+        )?;
+    }
+
+    // One detail page per running train.
+    let tdir = dir.join("train");
+    fs::create_dir_all(&tdir)?;
+    for t in &pos.trains {
+        // Run ids are numeric in the feed; guard against anything that could
+        // escape the tree before using it as a filename.
+        if !t.run.chars().all(|c| c.is_ascii_alphanumeric()) {
+            continue;
+        }
+        fs::write(
+            tdir.join(format!("{}.txt", t.run)),
+            render::train_page(pos, &t.run),
+        )?;
+    }
     Ok(())
+}
+
+/// The single daemon-specific function: serialize a daemon-agnostic menu
+/// ([`render::Entry`] list) into a geomyidae `.gph` index. **To target a
+/// different daemon (e.g. Gophernicus `gophermap`), rewrite only this.**
+///
+/// Format (confirmed against geomyidae(8) and the phd implementation): a link is
+/// `[<type>|<name>|<selector>|server|port]`; geomyidae substitutes the literal
+/// tokens `server`/`port` with its own host/port at serve time, so the files
+/// stay host/port-agnostic. Any line not starting with `[` is an info (i) line.
+fn render_menu_index(entries: &[render::Entry]) -> String {
+    use render::{Entry, ItemKind};
+    let mut out = String::new();
+    for e in entries {
+        match e {
+            Entry::Info(s) => {
+                // Info text that happens to start with '[' would be mis-parsed as
+                // a link; a leading space keeps it an info line.
+                if s.starts_with('[') {
+                    out.push(' ');
+                }
+                out.push_str(s);
+                out.push('\n');
+            }
+            Entry::Link {
+                kind,
+                display,
+                selector,
+            } => {
+                let t = match kind {
+                    ItemKind::Text => '0',
+                    ItemKind::Menu => '1',
+                };
+                out.push_str(&format!(
+                    "[{t}|{}|{}|server|port]\n",
+                    gph_escape(display),
+                    gph_escape(selector),
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// Escape the `.gph` field separator `|` within a field (geomyidae uses `\|`).
+fn gph_escape(s: &str) -> String {
+    s.replace('|', "\\|")
 }
 
 /// Atomically point `current` at `snap`: write a temp symlink then rename it over
@@ -241,5 +320,56 @@ mod tests {
         assert!(remaining.contains("out-005")); // newest
         assert!(!remaining.contains("out-001")); // dropped
         assert!(!remaining.contains("out-002")); // dropped
+    }
+
+    #[test]
+    fn menu_index_renders_geomyidae_gph() {
+        let pos = fixture_positions();
+
+        // Root: info banner stays a plain (info) line; map is a type-0 link; each
+        // line is a type-1 submenu link. server/port are placeholder tokens.
+        let root = render_menu_index(&render::root_menu(&pos));
+        assert!(root.contains("  gopher-cta : live CTA 'L' trains over Gopher\n"));
+        assert!(root.contains("[0|Live train map (braille)|/map.txt|server|port]\n"));
+        assert!(root.contains("[1|Red      (5 running)|/red|server|port]\n"));
+        // never bake a real host/port into the static index
+        assert!(!root.contains("localhost"));
+        assert!(!root.contains("\t"));
+
+        // Per-line: each train is a type-0 link to its detail page.
+        let red = render_menu_index(&render::line_menu(&pos, "red"));
+        assert!(red.contains("[0|Run 801   -> Howard|/train/801.txt|server|port]\n"));
+        assert!(red.contains("Red Line -- live trains\n")); // info header
+    }
+
+    #[test]
+    fn gph_escape_escapes_pipe() {
+        assert_eq!(gph_escape("a|b"), "a\\|b");
+        assert_eq!(gph_escape("plain"), "plain");
+    }
+
+    #[test]
+    fn write_tree_builds_full_navigable_tree() {
+        let tmp = TmpDir::new("tree");
+        let pos = fixture_positions();
+        let snap = publish(&tmp.0, &pos, &project::geometry(), "CTA 'L'").unwrap();
+
+        // root index links to the map and to the red submenu
+        let root = fs::read_to_string(snap.join("index.gph")).unwrap();
+        assert!(root.contains("[0|Live train map (braille)|/map.txt|server|port]"));
+        assert!(root.contains("[1|Red      (5 running)|/red|server|port]"));
+
+        // per-line submenu exists and drills into a train
+        let red = fs::read_to_string(snap.join("red/index.gph")).unwrap();
+        assert!(red.contains("[0|Run 801   -> Howard|/train/801.txt|server|port]"));
+
+        // the linked train detail page actually exists with matching content
+        let train = fs::read_to_string(snap.join("train/801.txt")).unwrap();
+        assert!(train.starts_with("Run 801 -- Red Line"));
+        assert!(train.contains("destination: Howard"));
+
+        // a detail page per running train (18 in the fixture)
+        let n = fs::read_dir(snap.join("train")).unwrap().count();
+        assert_eq!(n, pos.trains.len());
     }
 }
