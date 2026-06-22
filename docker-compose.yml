@@ -1,0 +1,37 @@
+# Local validation stack for gopher-cta (felipe's Mac Studio, 10.0.10.69).
+#
+#   docker compose up -d            # start (reuses cached images)
+#   docker compose up -d --build    # rebuild after a code change, then restart
+#   docker compose logs -f fetcher  # watch publishes / narration polls
+#   docker compose down             # stop & remove
+#
+# The fetcher writes the gopher tree into ./public every 30s (live trains + AI
+# narration); geomyidae serves ./public/current. `restart: unless-stopped` brings
+# both back after a reboot. geomyidae's -h (from .env GOPHER_HOST) makes menu
+# links advertise the reachable host instead of the container id — without it,
+# link-following breaks.
+services:
+  fetcher:
+    build: .
+    image: ghcr.io/felipedbene/gopher-cta:latest
+    container_name: gopher-cta-fetcher
+    env_file: .env                       # CTA_TRAIN_API_KEY (+ optional CTA_AI_BASE / CTA_HOME_*)
+    command: ["--interval", "30", "--out", "/srv"]
+    volumes:
+      - ./public:/srv
+    restart: unless-stopped
+
+  geomyidae:
+    build:
+      context: ./deploy
+      dockerfile: Dockerfile.geomyidae
+    image: geomyidae:local
+    container_name: geo
+    command: ["-h", "${GOPHER_HOST:-10.0.10.69}"]   # advertised host for the .gph `server` token
+    ports:
+      - "${GOPHER_PORT:-7070}:7070"
+    volumes:
+      - ./public:/srv:ro
+    depends_on:
+      - fetcher
+    restart: unless-stopped
