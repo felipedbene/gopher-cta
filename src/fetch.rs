@@ -16,6 +16,8 @@ use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use crate::atlas::Atlas;
+use crate::narration::{self, NarrationView};
 use crate::project::{self, Geometry};
 use crate::render;
 use crate::transit::{Positions, TransitSource};
@@ -63,6 +65,12 @@ impl Config {
 /// Run the fetcher: fetch -> publish, once or on an interval.
 pub async fn run<S: TransitSource>(cfg: Config, source: S) -> io::Result<()> {
     let geo = project::geometry();
+    // Rasterize the static geo overlay once; each publish clones it (never
+    // re-rasterizes) and paints live trains on top.
+    let atlas = Atlas::build(geo);
+    // AI narrative panels poll the Worker on a slow cadence in the background;
+    // each publish reads a snapshot and never blocks on (or depends on) them.
+    let narration = narration::spawn();
     eprintln!(
         "[fetch] out={} mode={}",
         cfg.out.display(),
@@ -74,15 +82,19 @@ pub async fn run<S: TransitSource>(cfg: Config, source: S) -> io::Result<()> {
     );
     loop {
         match source.positions().await {
-            Ok(pos) => match publish(&cfg.out, &pos, &geo, source.name()) {
-                Ok(snap) => eprintln!(
-                    "[fetch] published {} ({} trains) -> {}/current",
-                    snap.file_name().and_then(|n| n.to_str()).unwrap_or("?"),
-                    pos.trains.len(),
-                    cfg.out.display()
-                ),
-                Err(e) => eprintln!("[fetch] publish failed: {e}"),
-            },
+            Ok(pos) => {
+                // Snapshot the latest narration without blocking the train path.
+                let view = narration.lock().unwrap().clone();
+                match publish(&cfg.out, &pos, &geo, &atlas, &view, source.name()) {
+                    Ok(snap) => eprintln!(
+                        "[fetch] published {} ({} trains) -> {}/current",
+                        snap.file_name().and_then(|n| n.to_str()).unwrap_or("?"),
+                        pos.trains.len(),
+                        cfg.out.display()
+                    ),
+                    Err(e) => eprintln!("[fetch] publish failed: {e}"),
+                }
+            }
             Err(e) => eprintln!("[fetch] fetch failed: {e}"),
         }
         if cfg.once {
@@ -95,7 +107,14 @@ pub async fn run<S: TransitSource>(cfg: Config, source: S) -> io::Result<()> {
 
 /// Render the tree into a fresh `out-<ts>/`, then atomically flip `current` and
 /// GC old snapshots. Returns the snapshot directory.
-fn publish(out: &Path, pos: &Positions, geo: &Geometry, source_name: &str) -> io::Result<PathBuf> {
+fn publish(
+    out: &Path,
+    pos: &Positions,
+    geo: &Geometry,
+    atlas: &Atlas,
+    narration: &NarrationView,
+    source_name: &str,
+) -> io::Result<PathBuf> {
     fs::create_dir_all(out)?;
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -103,7 +122,7 @@ fn publish(out: &Path, pos: &Positions, geo: &Geometry, source_name: &str) -> io
         .as_nanos();
     let snap = out.join(format!("out-{ts}"));
     fs::create_dir_all(&snap)?;
-    write_tree(&snap, pos, geo, source_name)?;
+    write_tree(&snap, pos, geo, atlas, narration, source_name)?;
     flip_current(out, &snap)?;
     gc(out, &snap)?;
     Ok(snap)
@@ -112,16 +131,43 @@ fn publish(out: &Path, pos: &Positions, geo: &Geometry, source_name: &str) -> io
 /// Write the full navigable gopher tree for one snapshot:
 ///   index.gph            root menu (map link + one entry per line)
 ///   map.txt              braille map (text)
+///   atlas.txt            char-cell geographic atlas: coast + landmarks + trains
+///   dispatch.txt         AI dispatch summary + live feed stats
+///   sitrep.txt           AI SITREP (alerts summary) for the home station
+///   events.txt           AI event advisory
 ///   about.txt            about page (text)
 ///   <line>/index.gph     per-line menu, each train a drill-down link
 ///   train/<run>.txt      per-train detail page (text)
-fn write_tree(dir: &Path, pos: &Positions, geo: &Geometry, source_name: &str) -> io::Result<()> {
+fn write_tree(
+    dir: &Path,
+    pos: &Positions,
+    geo: &Geometry,
+    atlas: &Atlas,
+    narration: &NarrationView,
+    source_name: &str,
+) -> io::Result<()> {
     // Root menu + top-level text pages.
     fs::write(
         dir.join("index.gph"),
         render_menu_index(&render::root_menu(pos)),
     )?;
     fs::write(dir.join("map.txt"), render::map_page(pos, geo, source_name))?;
+    fs::write(dir.join("atlas.txt"), atlas.render(pos, source_name))?;
+    // Narrative panels (last-good snapshot; renders placeholders if never
+    // retrieved). `now` once so all three pages share a consistent age.
+    let now = narration::now_secs();
+    fs::write(
+        dir.join("dispatch.txt"),
+        narration::dispatch_page(narration, pos, now),
+    )?;
+    fs::write(
+        dir.join("sitrep.txt"),
+        narration::sitrep_page(narration, now),
+    )?;
+    fs::write(
+        dir.join("events.txt"),
+        narration::events_page(narration, now),
+    )?;
     fs::write(dir.join("about.txt"), render::about_page())?;
 
     // One submenu directory per line (its index.gph is the per-line listing).
@@ -272,9 +318,11 @@ mod tests {
     fn publish_writes_tree_and_flips_current() {
         let tmp = TmpDir::new("publish");
         let geo = project::geometry();
+        let atlas = Atlas::build(geo);
+        let narration = NarrationView::default();
         let pos = fixture_positions();
 
-        let snap = publish(&tmp.0, &pos, &geo, "CTA 'L'").unwrap();
+        let snap = publish(&tmp.0, &pos, &geo, &atlas, &narration, "CTA 'L'").unwrap();
 
         // current is a symlink to a relative out-* target
         let link = tmp.0.join("current");
@@ -289,6 +337,22 @@ mod tests {
         assert!(fs::read_to_string(link.join("about.txt"))
             .unwrap()
             .contains("gopher-cta"));
+
+        // the atlas page is published alongside the braille map
+        let atlas_txt = fs::read_to_string(link.join("atlas.txt")).unwrap();
+        assert!(atlas_txt.contains("geographic atlas"));
+        assert!(atlas_txt.contains("LANDMARKS"));
+
+        // the narrative panels are published (placeholders without a live Worker)
+        assert!(fs::read_to_string(link.join("dispatch.txt"))
+            .unwrap()
+            .contains("feed stats:"));
+        assert!(fs::read_to_string(link.join("sitrep.txt"))
+            .unwrap()
+            .contains("SITREP"));
+        assert!(fs::read_to_string(link.join("events.txt"))
+            .unwrap()
+            .contains("event advisory"));
     }
 
     #[test]
@@ -331,6 +395,10 @@ mod tests {
         let root = render_menu_index(&render::root_menu(&pos));
         assert!(root.contains("  gopher-cta : live CTA 'L' trains over Gopher\n"));
         assert!(root.contains("[0|Live train map (braille)|/map.txt|server|port]\n"));
+        assert!(root.contains("[0|Geographic atlas (coast + landmarks)|/atlas.txt|server|port]\n"));
+        assert!(root.contains("[0|Dispatch (summary + feed stats)|/dispatch.txt|server|port]\n"));
+        assert!(root.contains("[0|SITREP (AI alerts summary)|/sitrep.txt|server|port]\n"));
+        assert!(root.contains("[0|Event advisory (AI)|/events.txt|server|port]\n"));
         assert!(root.contains("[1|Red      (5 running)|/red|server|port]\n"));
         // never bake a real host/port into the static index
         assert!(!root.contains("localhost"));
@@ -352,11 +420,19 @@ mod tests {
     fn write_tree_builds_full_navigable_tree() {
         let tmp = TmpDir::new("tree");
         let pos = fixture_positions();
-        let snap = publish(&tmp.0, &pos, &project::geometry(), "CTA 'L'").unwrap();
+        let geo = project::geometry();
+        let atlas = Atlas::build(geo);
+        let narration = NarrationView::default();
+        let snap = publish(&tmp.0, &pos, &geo, &atlas, &narration, "CTA 'L'").unwrap();
 
-        // root index links to the map and to the red submenu
+        // root index links to the map, the atlas, and the red submenu
         let root = fs::read_to_string(snap.join("index.gph")).unwrap();
         assert!(root.contains("[0|Live train map (braille)|/map.txt|server|port]"));
+        assert!(root.contains("[0|Geographic atlas (coast + landmarks)|/atlas.txt|server|port]"));
+        // the atlas page itself is written
+        assert!(fs::read_to_string(snap.join("atlas.txt"))
+            .unwrap()
+            .contains("geographic atlas"));
         assert!(root.contains("[1|Red      (5 running)|/red|server|port]"));
 
         // per-line submenu exists and drills into a train
