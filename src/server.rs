@@ -193,9 +193,9 @@ pub fn build_cta_menu(pos: &Positions, host: &str, port: u16) -> String {
     render_menu(&items)
 }
 
-/// Per-line view: a gopher menu whose run rows are clickable (type-1) items that
-/// drill into `/train/<run_id>` detail pages. Host/port come from the same source
-/// as the rest of the menus so links resolve back to this server.
+/// Per-line view: a gopher menu whose run rows are clickable (type-0 text) links
+/// that drill into `/train/<run_id>` detail pages. Host/port come from the same
+/// source as the rest of the menus so links resolve back to this server.
 pub fn build_line_menu(pos: &Positions, line: &str, host: &str, port: u16) -> String {
     let mut trains: Vec<&Train> = pos.trains.iter().filter(|t| t.line == line).collect();
     trains.sort_by(|a, b| a.run.cmp(&b.run));
@@ -234,8 +234,10 @@ pub fn build_line_menu(pos: &Positions, line: &str, host: &str, port: u16) -> St
             format!("  [{}]", flags.join(", "))
         };
         let display = format!("Run {:<5} -> {}{}", t.run, t.dest, flag_str);
+        // Type 0: the target /train/<run> is a text page, so the link advertises
+        // the text item type (RFC 1436) — clients fetch it as a document, not a menu.
         items.push(MenuItem::link(
-            ItemType::Menu,
+            ItemType::Text,
             display,
             format!("/train/{}", t.run),
             host,
@@ -456,8 +458,8 @@ mod tests {
         assert!(menu.ends_with(".\r\n"));
         assert!(menu.contains("Red Line -- live trains"));
         assert!(menu.contains("5 train(s) running"));
-        // Each run is a type-1 (menu) line pointing at /train/<run> on this host.
-        assert!(menu.contains("1Run 801"));
+        // Each run is a type-0 (text) link pointing at /train/<run> on this host.
+        assert!(menu.contains("0Run 801"));
         assert!(menu.contains("\t/train/801\th\t70\r\n"));
         // All five red runs should be drill-down links.
         for run in ["801", "812", "823", "834", "845"] {
