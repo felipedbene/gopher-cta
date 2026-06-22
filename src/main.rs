@@ -1,31 +1,24 @@
-//! gopher-cta: live CTA 'L' train positions as a Unicode-braille geographic map,
-//! per-line listings, and per-train detail pages.
+//! gopher-cta: fetch live CTA 'L' train positions and publish a static gopher
+//! tree — a Unicode-braille geographic map, per-line listings, and per-train
+//! detail pages — for an external gopher daemon (geomyidae) to serve.
 //!
-//! Two front ends share one render core:
-//!   gopher-cta fetch [--once] [--interval <secs>] [--out <dir>]
-//!       Fetch the feed and publish a static gopher tree for a daemon to serve.
-//!   gopher-cta serve            (transitional; removed once fetch fully lands)
-//!       Run the built-in gopher server directly.
+//! Usage:
+//!   gopher-cta [--once] [--interval <secs>] [--out <dir>]
 //!
 //! Configuration via environment variables:
 //!   CTA_TRAIN_API_KEY  Train Tracker key. Unset => offline fixture mode.
 //!   CTA_ROUTES         comma route keys (default: red,blue,brn,g,org,p,pink,y)
-//!   GOPHER_OUT         fetch output dir (default: public)
-//!   GOPHER_PORT        serve listen port (default 7070)
-//!   GOPHER_HOST        serve advertised host in menu links (default localhost)
+//!   GOPHER_OUT         output dir (default: public); the daemon serves <out>/current
 
 mod braille;
 mod fetch;
 mod project;
-mod protocol;
 mod render;
-mod server;
 mod transit;
 
 use std::env;
 use std::io;
 
-use server::Server;
 use transit::{CtaSource, DEFAULT_ROUTES};
 
 /// The recorded positions snapshot, compiled in so the tool runs fully offline
@@ -51,22 +44,13 @@ async fn main() -> io::Result<()> {
     }
     let source = CtaSource::new(key, routes, FIXTURE.to_string());
 
+    // The binary is the fetcher; all args are fetch flags. Tolerate a leading
+    // `fetch` token for muscle memory from the transitional two-subcommand form.
     let args: Vec<String> = env::args().collect();
-    match args.get(1).map(String::as_str) {
-        Some("fetch") => {
-            let cfg = fetch::Config::from_args(&args[2..]).map_err(io::Error::other)?;
-            fetch::run(cfg, source).await
-        }
-        Some("serve") | None => {
-            let host = env::var("GOPHER_HOST").unwrap_or_else(|_| "localhost".to_string());
-            let port: u16 = env::var("GOPHER_PORT")
-                .ok()
-                .and_then(|p| p.parse().ok())
-                .unwrap_or(7070);
-            Server::new(host, port, source).run().await
-        }
-        Some(other) => Err(io::Error::other(format!(
-            "unknown command: {other} (expected `fetch` or `serve`)"
-        ))),
-    }
+    let flags = match args.get(1).map(String::as_str) {
+        Some("fetch") => &args[2..],
+        _ => &args[1..],
+    };
+    let cfg = fetch::Config::from_args(flags).map_err(io::Error::other)?;
+    fetch::run(cfg, source).await
 }

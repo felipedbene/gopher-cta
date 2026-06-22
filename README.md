@@ -1,66 +1,80 @@
 # gopher-cta
 
-A small, self-contained **Gopher (RFC 1436) server** that serves **live CTA 'L'
-train positions as a geographic map rendered with Unicode Braille**, plus
-per-line text positions. Written in Rust (async via `tokio`), minimal deps.
+A **fetcher** that turns **live CTA 'L' train positions into a static gopher
+tree** — a geographic map rendered with Unicode Braille, per-line listings, and
+per-train detail pages — for an existing gopher daemon (**geomyidae**) to serve.
+Written in Rust, minimal deps. No protocol server of its own.
 
 ```
-                CTA Train Tracker  ──► CtaSource ──► braille canvas ──► Gopher
-                (or bundled fixture)                  (lat/lon → dots)
+  CTA Train Tracker ─► CtaSource ─► render (braille map, menus, pages)
+  (or bundled fixture)                     │
+                                           ▼  atomic publish
+                              <out>/out-<ts>/ … ──► flip <out>/current symlink
+                                           │
+                                  geomyidae serves <out>/current
 ```
 
-## What it serves
+## The published tree
 
-| Selector       | Type | Content                                                        |
-| -------------- | ---- | -------------------------------------------------------------- |
-| `` (root)      | menu | Links to the map, the per-line menu, and about.                |
-| `/map`         | text | **Braille geographic plot of every live train** + legend + feed time. |
-| `/cta`         | menu | One entry per 'L' line, with a live train count.               |
-| `/cta/<line>`  | text | That line's trains: run, destination, next stop, heading, coords. |
-| `/about`       | text | What this is and the canvas/projection parameters.             |
+The fetcher writes this under each snapshot (the daemon serves `current/`):
 
-Line keys: `red blue brn g org p pink y`.
+| Path                | Type | Content                                                       |
+| ------------------- | ---- | ------------------------------------------------------------- |
+| `index.gph`         | menu | Root: link to the map + one entry per line (with live counts).|
+| `map.txt`           | text | **Braille geographic plot of every live train** + legend + feed time. |
+| `<line>/index.gph`  | menu | That line's running trains; each drills into a detail page.   |
+| `train/<run>.txt`   | text | One train: line/color, position+heading, next stop + predicted time. |
+| `about.txt`         | text | What this is and the canvas/projection parameters.            |
+
+Line keys: `red blue brn g org p pink y`. Menus are geomyidae `.gph` files; the
+`server`/`port` fields are left as placeholder tokens that geomyidae fills in,
+so the tree is host/port-agnostic.
 
 ## Running
 
 ```sh
-cargo run            # boots on :7070, serving the bundled fixture (no key needed)
+# render the tree once into ./public (bundled fixture, no key needed)
+cargo run -- --once --out ./public
+
+# or loop, refreshing every 30s
+cargo run -- --interval 30 --out ./public
 ```
 
-Point any gopher client at it:
+Then point geomyidae at the published snapshot and browse:
 
 ```sh
-# raw TCP — selector terminated by CRLF, server replies then closes
-printf '/map\r\n' | nc localhost 7070
-
-# curl speaks gopher://
-curl gopher://localhost:7070/          # root menu
-curl gopher://localhost:7070/0/map     # the braille map (0/ = "this is a text item")
-curl gopher://localhost:7070/0/cta/red
-
-# or a real client
+geomyidae -b ./public/current -p 7070
+curl gopher://localhost:7070/             # root menu
+curl gopher://localhost:7070/0/map.txt    # the braille map (0/ = text item)
 lynx gopher://localhost:7070
 ```
 
 The map is best viewed in a terminal with a font that has Braille glyphs
 (U+2800–U+28FF) — most monospaced fonts do.
 
-### Configuration (environment variables only)
+### CLI flags
+
+| Flag               | Default | Meaning                                            |
+| ------------------ | ------- | -------------------------------------------------- |
+| `--once`           | off     | Render one snapshot and exit (else loop).          |
+| `--interval <secs>`| `30`    | Loop refresh interval.                             |
+| `--out <dir>`      | `public`| Output dir; daemon serves `<dir>/current`. (`$GOPHER_OUT`) |
+
+### Configuration (environment variables)
 
 | Var                 | Default                        | Meaning                                            |
 | ------------------- | ------------------------------ | -------------------------------------------------- |
 | `CTA_TRAIN_API_KEY` | _unset_                        | Train Tracker API key. **Unset ⇒ offline fixture mode.** |
 | `CTA_ROUTES`        | `red,blue,brn,g,org,p,pink,y`  | Comma-separated route keys to fetch.               |
-| `GOPHER_PORT`       | `7070`                         | TCP listen port (non-privileged).                  |
-| `GOPHER_HOST`       | `localhost`                    | Host advertised in menu item links.                |
+| `GOPHER_OUT`        | `public`                       | Output dir (same as `--out`).                      |
 
-The server **always boots**: with no key (or if a live fetch fails) it serves
-the recorded snapshot in `fixtures/positions.json`, so the whole thing is
-demoable and testable offline. Get a free key at
+The fetcher **always produces a tree**: with no key (or if a live fetch fails)
+it renders the recorded snapshot in `fixtures/positions.json`, so the whole
+thing is demoable and testable offline. Get a free key at
 <https://www.transitchicago.com/developers/traintracker/>.
 
 ```sh
-CTA_TRAIN_API_KEY=xxxx GOPHER_PORT=7070 cargo run   # live data
+CTA_TRAIN_API_KEY=xxxx cargo run -- --interval 30 --out ./public   # live data
 ```
 
 A local `.env` (gitignored) is loaded at startup, so you can drop the key in a
@@ -70,6 +84,14 @@ file instead of exporting it. A real exported env var still takes precedence:
 # .env
 CTA_TRAIN_API_KEY=your-train-tracker-key-here
 ```
+
+### Why a fetcher + daemon (not a custom server)
+
+Rendering to static files served by a hardened, battle-tested gopher daemon
+means no bespoke socket/selector code to maintain, atomic snapshot publishing
+(readers never see a half-written tree), and trivial horizontal serving. The
+daemon-specific bit is one function, `render_menu_index()` in `src/fetch.rs`;
+switching to e.g. Gophernicus means rewriting only that.
 
 ## How the braille map works
 
@@ -81,24 +103,29 @@ pixels. Setting a pixel ORs its dot's bit into that cell's byte. See
 
 ### Projection and the bounding box (tunable)
 
-`src/project.rs` maps lat/lon linearly onto the canvas, with a longitude aspect
-correction by `cos(lat_mid)` (full Mercator is overkill at city scale). All the
-knobs live at the top of that file and are labelled **TUNABLE**:
+`src/project.rs` maps lat/lon onto the canvas with a km-based model: longitude is
+shrunk by `cos(lat_c)` and the row budget is derived from the column budget and
+`CELL_ASPECT` so the city renders north-up and undistorted (full Mercator is
+overkill at city scale). All the knobs live at the top of that file, labelled
+**TUNABLE**:
 
 ```rust
-pub const LAT_MIN: f64 = 41.65;   // south edge
-pub const LAT_MAX: f64 = 42.07;   // north edge
-pub const LON_MIN: f64 = -87.90;  // west edge
-pub const LON_MAX: f64 = -87.52;  // east edge
-pub const WP: usize    = 160;     // canvas pixel width (= 80 braille cells); height is derived
+pub const LAT_MIN: f64 = 41.65;       // south edge
+pub const LAT_MAX: f64 = 42.07;       // north edge
+pub const LON_MIN: f64 = -87.90;      // west edge
+pub const LON_MAX: f64 = -87.52;      // east edge
+pub const W: usize          = 80;     // column budget (braille cells); rows derived
+pub const CELL_ASPECT: f64  = 2.0;    // terminal cell height/width
+pub const LAT_KM_PER_DEG: f64 = 111.32;
 ```
 
 - **Zoom in** on downtown: tighten the bbox (e.g. `LAT_MIN=41.85, LAT_MAX=41.95`).
-- **Include more suburbs**: widen it. Height auto-derives to preserve aspect.
-- **Bigger/smaller canvas**: change `WP` (keep it even).
+- **Include more suburbs**: widen it. Rows auto-derive to preserve aspect.
+- **Bigger/smaller canvas**: change `W`.
 
-Points outside the bbox are **dropped**, not clamped, so off-map trains vanish
-rather than smearing along the edges. North is up (y is flipped).
+Points outside the bbox are **dropped**, not clamped (off-map trains vanish
+rather than smearing along the edges); dropped run ids are logged at debug level.
+North is up (the row axis is flipped).
 
 ## Extending to other agencies (the Metra seam)
 
@@ -123,32 +150,35 @@ bbox to cover the regional rail footprint). Look for `TODO(felipe)` in that file
 ```
 src/
   braille.rs   2×4 dot canvas; set(px,py); render() → String. Pure, unit-tested.
-  project.rs   bbox + cos(lat) projection. Pure, unit-tested (corners→corners).
-  protocol.rs  gopher menu/text builders, CRLF + trailing-dot, selector parse.
+  project.rs   km-based bbox projection. Pure, unit-tested (corners→corners).
+  render.rs    pure render core: text pages + daemon-agnostic menu model (Entry).
   transit.rs   TransitSource trait, Train, CtaSource (live+fixture), MetraSource stub.
-  server.rs    tokio accept loop, selector routing, pure view builders.
-  main.rs      env-var config + wiring.
+  fetch.rs     fetch loop, atomic publish (current symlink + GC), geomyidae .gph.
+  main.rs      env/flag config + wiring.
 fixtures/
   positions.json   recorded ttpositions snapshot (offline demo + tests).
 ```
 
-The CTA wire-parsing layer (the `OneOrMany` "one or many" handling that CTA's
-XML→JSON conversion forces) mirrors the working code in the sibling `cta-tui`
-repo, which is the source of truth for field names.
+`render.rs` is the pure, daemon-agnostic core (feed data → strings + `Entry`
+menus); `fetch.rs` is the only place that knows about geomyidae (the
+`render_menu_index()` `.gph` serializer) and the filesystem. The CTA
+wire-parsing layer (the `OneOrMany` "one or many" handling that CTA's XML→JSON
+conversion forces) mirrors the sibling `cta-tui` repo, the source of truth for
+field names.
 
 ## Testing
 
 ```sh
-cargo test                       # 31 unit + integration tests
+cargo test                       # unit + integration tests
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
 
 Covered: braille bit-mapping (spec vectors), projection (bbox corners land at
-canvas corners, midpoint near center, out-of-bbox dropped), protocol (tabs
-present, CRLF endings, menu ends with `.`, type-7 selector splits on TAB), and
-an end-to-end fixture render of `/map` (non-empty, correct row count, contains
-braille glyphs).
+canvas corners, known lat/lon → expected cell, out-of-bbox dropped), render
+(known feed → expected listing/links, map braille+footer, train detail
+valid/unknown), and the fetcher (atomic publish + `current` symlink, GC, the
+geomyidae `.gph` serialization, full-tree build).
 
 ## Cross-compiling for PowerPC (PowerMac G5)
 
@@ -187,19 +217,26 @@ an older base image or switch to the `powerpc64-unknown-linux-musl` target.
 
 ### Running it on the G5
 
+The G5 runs the **fetcher** (writes the tree); a gopher daemon on the same box
+serves it. Install geomyidae from your distro (or build from bitreich source),
+then:
+
 ```sh
 scp dist/gopher-cta-powerpc64 you@g5:~/
 # on the G5:
-CTA_TRAIN_API_KEY=... GOPHER_HOST=<g5-lan-ip> ./gopher-cta-powerpc64
+CTA_TRAIN_API_KEY=... ./gopher-cta-powerpc64 --interval 30 --out ~/public &
+geomyidae -b ~/public/current -p 7070
 ```
 
-It listens on `0.0.0.0:7070`, so point any gopher client on your LAN at the G5.
-Without a key it serves the bundled fixture (no network/TLS needed at all).
-Verified end-to-end under emulation: the big-endian binary boots, fetches live
-CTA data over HTTPS (OpenSSL), and serves the braille map and drill-down menus.
+Point any gopher client on your LAN at the G5. Without a key the fetcher renders
+the bundled fixture (no network/TLS needed at all). Verified under emulation:
+the big-endian binary fetches live CTA data over HTTPS (OpenSSL) and writes the
+full braille-map + drill-down tree.
 
 ## Scope
 
-CTA only this build. No Metra/GTFS-RT (stub), no auth, no HTTP frontend. TLS is
-used only for the outbound CTA fetch (rustls by default, OpenSSL for big-endian
-targets). Not affiliated with the Chicago Transit Authority.
+CTA only this build. No Metra/GTFS-RT (stub), no auth, no HTTP frontend, no
+gopher protocol server of our own (a daemon serves the static tree). No type-7
+search — navigation + drill-down only. TLS is used only for the outbound CTA
+fetch (rustls by default, OpenSSL for big-endian targets). Not affiliated with
+the Chicago Transit Authority.
