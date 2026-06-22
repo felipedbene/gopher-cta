@@ -7,9 +7,10 @@
 //!
 //! Markers are **plain ASCII** for portability across old/non-UTF-8 gopher
 //! clients (and to dodge double-width emoji/CJK glyphs that would shear the
-//! grid): shoreline `#`, each landmark a letter `A`–`N` keyed by its id, live
-//! trains as a 4-way heading arrow `^ > v <` (`o` when the feed reports no
-//! heading). The legend maps letters to names.
+//! grid): shoreline `#`, each landmark a unique mnemonic letter (W = Willis,
+//! F = Field Museum…), live trains as a 4-way heading arrow `^ > v <` (`o` when
+//! the feed reports no heading). The legend lists only the markers actually
+//! visible on the grid (not covered by a train or lost to a collision).
 //!
 //! Pixel-locked to the trains: cells come from the SAME [`project::project`] the
 //! braille map uses, collapsed from braille-pixel to char-cell `(px/2, py/4)`.
@@ -73,12 +74,6 @@ fn road_glyph(dx: i32, dy: i32) -> char {
 const SHORE_GLYPH: char = '#';
 const TRAIN_GLYPH: char = 'o';
 
-/// On-grid marker for a landmark: a letter keyed by id (1→A, 2→B, …). Ids run
-/// 1..=14 so this stays within A..N; the legend maps letters back to names.
-fn landmark_marker(id: u32) -> char {
-    (b'A' + (id.saturating_sub(1) % 26) as u8) as char
-}
-
 /// On-grid marker for a train: a 4-way ASCII heading arrow (`^ > v <`), so the
 /// direction of travel reads on any client. Diagonals round to the nearest
 /// cardinal; `o` when the feed reports no heading.
@@ -126,8 +121,10 @@ pub struct Shoreline {
 
 #[derive(Debug, Deserialize)]
 pub struct Landmark {
-    pub id: u32,
     pub name: String,
+    /// On-grid marker: a unique mnemonic letter (W = Willis, F = Field Museum…),
+    /// chosen in the data so it relates to the name. The legend maps it back.
+    pub marker: char,
     pub lat: f64,
     pub lon: f64,
     /// Reserved for the per-landmark detail page (a deferred commit); parsed now
@@ -187,6 +184,19 @@ impl CharGrid {
             self.prio[i] = priority;
             self.color[i] = color;
         }
+    }
+
+    /// The glyph currently at `(col, row)`, or `None` if out of frame. Used to
+    /// tell whether a landmark's marker survived on the rendered grid.
+    fn cell_at(&self, col: i32, row: i32) -> Option<char> {
+        if col < 0 || row < 0 {
+            return None;
+        }
+        let (c, r) = (col as usize, row as usize);
+        if c >= self.wc || r >= self.hc {
+            return None;
+        }
+        Some(self.cells[r * self.wc + c])
     }
 
     /// One line per row with trailing blanks trimmed, rows joined by `\n`.
@@ -271,9 +281,6 @@ pub struct Atlas {
     geo: GeoData,
     geom: Geometry,
     base: CharGrid,
-    /// Landmark ids that fall outside the bbox and so never paint (e.g. O'Hare,
-    /// just west of the frame). Surfaced in the legend, not silently lost.
-    off_map: Vec<u32>,
 }
 
 impl Atlas {
@@ -313,14 +320,10 @@ impl Atlas {
             }
         }
 
-        // Landmarks: one marker cell each; off-bbox ones recorded for the legend.
-        let mut off_map = Vec::new();
+        // Landmarks: one marker cell each (its mnemonic letter).
         for m in &geo.landmarks {
-            match project_cell(m.lat, m.lon, &geom) {
-                Some((c, r)) => {
-                    base.put(c, r, landmark_marker(m.id), PRIO_LANDMARK, LANDMARK_COLOR)
-                }
-                None => off_map.push(m.id),
+            if let Some((c, r)) = project_cell(m.lat, m.lon, &geom) {
+                base.put(c, r, m.marker, PRIO_LANDMARK, LANDMARK_COLOR);
             }
         }
 
@@ -335,12 +338,7 @@ impl Atlas {
             }
         }
 
-        Atlas {
-            geo,
-            geom,
-            base,
-            off_map,
-        }
+        Atlas { geo, geom, base }
     }
 
     /// Render the atlas page (plain text): clone the static base, paint live
@@ -385,6 +383,20 @@ impl Atlas {
             );
         }
 
+        // Only landmarks whose marker still shows on the rendered grid — i.e.
+        // not off-bbox, not lost to a same-cell collision, and not covered by a
+        // train — so the legend lists exactly what's actually on the map.
+        let visible: Vec<&Landmark> = self
+            .geo
+            .landmarks
+            .iter()
+            .filter(|m| {
+                project_cell(m.lat, m.lon, &self.geom)
+                    .and_then(|(c, r)| grid.cell_at(c, r))
+                    .is_some_and(|ch| ch == m.marker)
+            })
+            .collect();
+
         let mut out = String::new();
         out.push_str("CTA 'L' -- geographic atlas\n");
         out.push_str(&format!(
@@ -415,11 +427,11 @@ impl Atlas {
         out.push_str(&"-".repeat(self.geom.wc.min(78)));
         out.push('\n');
         out.push_str(&format!(
-            "{} trains plotted of {} reporting.  {} landmarks ({} off current bbox).\n",
+            "{} trains plotted of {} reporting.  {} of {} landmarks shown.\n",
             plotted,
             pos.trains.len(),
+            visible.len(),
             self.geo.landmarks.len(),
-            self.off_map.len(),
         ));
         out.push_str(&format!(
             "bbox lat[{}..{}] lon[{}..{}]\n",
@@ -438,21 +450,12 @@ impl Atlas {
             out.push_str(&format!("expressways  (= | / \\):  {}\n", names.join("; ")));
         }
 
-        // Numbered landmark legend (keyed by id; labels never go inline on the
-        // grid, where they would collide on a char cell).
-        out.push_str("\nLANDMARKS  (marker on the grid -> place)\n");
-        for m in &self.geo.landmarks {
-            let mark = if self.off_map.contains(&m.id) {
-                "  [off map]"
-            } else {
-                ""
-            };
-            out.push_str(&format!(
-                "  {}  {}{}\n",
-                landmark_marker(m.id),
-                m.name,
-                mark
-            ));
+        // Landmark legend — only the markers actually visible on the grid above,
+        // keyed by the on-grid letter (labels never go inline, where they'd
+        // collide on a char cell).
+        out.push_str("\nLANDMARKS  (marker -> place)\n");
+        for m in &visible {
+            out.push_str(&format!("  {}  {}\n", m.marker, m.name));
         }
 
         // Per-line train counts (mirrors the braille map's legend).
@@ -487,10 +490,22 @@ mod tests {
         let geo = GeoData::load();
         assert_eq!(geo.shoreline.points.len(), 17);
         assert_eq!(geo.landmarks.len(), 14);
-        let willis = geo.landmarks.iter().find(|m| m.id == 1).unwrap();
-        assert_eq!(willis.name, "Willis Tower");
-        let ohare = geo.landmarks.iter().find(|m| m.id == 14).unwrap();
-        assert_eq!(ohare.category, "transit_hub");
+        // Mnemonic markers come from the data and are unique.
+        let willis = geo
+            .landmarks
+            .iter()
+            .find(|m| m.name == "Willis Tower")
+            .unwrap();
+        assert_eq!(willis.marker, 'W');
+        let field = geo
+            .landmarks
+            .iter()
+            .find(|m| m.name == "Field Museum")
+            .unwrap();
+        assert_eq!(field.marker, 'F');
+        let markers: std::collections::HashSet<char> =
+            geo.landmarks.iter().map(|m| m.marker).collect();
+        assert_eq!(markers.len(), 14, "landmark markers must be unique");
         assert_eq!(geo.expressways.len(), 1);
         assert!(geo.expressways[0].name.contains("90/94"));
         assert_eq!(geo.expressways[0].points.len(), 11);
@@ -503,13 +518,6 @@ mod tests {
         assert_eq!(road_glyph(5, 5), '\\'); // down-right (NW-SE)
         assert_eq!(road_glyph(5, -5), '/'); // up-right (SW-NE)
         assert_eq!(road_glyph(-4, -4), '\\'); // up-left
-    }
-
-    #[test]
-    fn landmark_markers_are_letters_by_id() {
-        assert_eq!(landmark_marker(1), 'A');
-        assert_eq!(landmark_marker(5), 'E');
-        assert_eq!(landmark_marker(14), 'N');
     }
 
     #[test]
@@ -567,11 +575,12 @@ mod tests {
         // No trains, so nothing overwrites the static layers.
         let body = atlas.render(&Positions::default(), "CTA 'L'");
         assert!(body.contains('#'), "shoreline marker missing from grid");
-        assert!(body.contains('A'), "Willis Tower marker missing from grid");
         assert!(body.contains("0 trains plotted of 0 reporting"));
-        // O'Hare sits just west of the bbox and is reported off-map.
-        assert!(body.contains("14 landmarks (1 off current bbox)"));
-        assert!(body.contains("  N  O'Hare (ORD)  [off map]"));
+        assert!(body.contains("of 14 landmarks shown"));
+        // A marker with an isolated cell (Midway, far SW) is listed by mnemonic.
+        assert!(body.contains("  D  Midway (MDW)"));
+        // The off-bbox O'Hare is filtered out, not floated in the legend.
+        assert!(!body.contains("O'Hare"));
     }
 
     #[test]
@@ -606,9 +615,9 @@ mod tests {
         );
         assert!(body.contains("18 trains plotted of 18 reporting"));
         assert!(body.contains("offline fixture"));
-        // Legend present, keyed by the on-grid letter.
+        // Legend present, listing only the visible markers.
         assert!(body.contains("LANDMARKS"));
-        assert!(body.contains("  A  Willis Tower"));
+        assert!(body.contains("of 14 landmarks shown"));
         // Per-line counts mirror the braille map.
         assert!(body.contains("legend (trains per line):"));
         assert!(body.contains("Red      5"));
