@@ -225,11 +225,25 @@ pub fn build_line_text(pos: &Positions, line: &str) -> String {
 pub fn build_map(pos: &Positions, geo: &Geometry, source_name: &str) -> String {
     let mut canvas = Canvas::new(geo.wc, geo.hc);
     let mut plotted = 0usize;
+    let mut dropped: Vec<&str> = Vec::new();
     for t in &pos.trains {
         if let Some((px, py)) = project::project(t.lat, t.lon, geo) {
             canvas.set(px, py);
             plotted += 1;
+        } else {
+            // Out-of-bbox (or otherwise unprojectable) — record the run id so the
+            // "X of Y reporting" gap is diagnosable instead of silently swallowed.
+            dropped.push(&t.run);
         }
+    }
+    if !dropped.is_empty() {
+        // Debug-level diagnostic (no logging crate in use; stderr matches the
+        // [cta]/[snapshot]/[conn] convention elsewhere in the server).
+        eprintln!(
+            "[debug][map] dropped {} train(s) that failed to plot (null coords / outside bbox): {}",
+            dropped.len(),
+            dropped.join(", ")
+        );
     }
 
     let mut out = String::new();
@@ -281,7 +295,8 @@ fn about_text() -> String {
          Unicode-braille geographic map, projected from lat/lon onto a sub-character\n\
          canvas. Per-line text positions are served under /cta.\n\n\
          Canvas: {wc}x{hc} braille cells ({wp}x{hp} pixels).\n\
-         Projection: linear bbox map with cos(lat) longitude aspect correction.\n\n\
+         Projection: km-based bbox map, cos(lat) longitude shrink + terminal\n\
+         cell-aspect correction, so the city renders north-up and undistorted.\n\n\
          Built in Rust (tokio). Data from the CTA Train Tracker API.\n\
          Not affiliated with the Chicago Transit Authority.\n",
         wc = g.wc,
