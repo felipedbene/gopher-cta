@@ -1,4 +1,0 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
-     Running `target/debug/gopher-cta`
-CTA_TRAIN_API_KEY set: serving live data (fixture fallback on error).
-gopher-cta listening on 0.0.0.0:7070 (advertising 10.0.10.69:7070)
