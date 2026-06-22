@@ -24,12 +24,12 @@
 
 // --- TUNABLE: geographic bounding box of the plotted area (the 'L' system). ---
 pub const LAT_MIN: f64 = 41.65;
-pub const LAT_MAX: f64 = 42.07;
+pub const LAT_MAX: f64 = 42.08;
 pub const LON_MIN: f64 = -87.90;
 // East edge pushed past the shoreline (~-87.52) into open lake so there is water
 // east of the coast — room for the atlas's "LAKE MICHIGAN" label and the coast's
 // eastward bulges, instead of the coastline pinned to the frame edge.
-pub const LON_MAX: f64 = -87.48;
+pub const LON_MAX: f64 = -87.54;
 
 /// Kilometres per degree of latitude (constant everywhere on Earth).
 pub const LAT_KM_PER_DEG: f64 = 111.32;
@@ -110,8 +110,8 @@ mod tests {
         let g = geometry();
         assert_eq!(g.wc, W);
         assert_eq!(g.wp, 2 * W);
-        // h_km/w_km ~ 1.343, * (48/2) = 32.2 -> 32 rows. Taller than wide.
-        assert_eq!(g.hc, 32);
+        // h_km/w_km ~ 1.604, * (48/2) = 38.5 -> 38 rows. Taller than wide.
+        assert_eq!(g.hc, 38);
         assert_eq!(g.hp, 4 * g.hc);
         // Faithful aspect: on-screen height (rows * CELL_ASPECT) vs width (cols)
         // should track the real km aspect to within a row.
@@ -136,14 +136,13 @@ mod tests {
 
     #[test]
     fn known_point_maps_to_expected_cell() {
-        // A point a quarter of the way up; lon 0.095/0.42 across the bbox.
-        // lon: -87.805 is 0.095/0.42 = 0.226 across; lat: 41.755 is 0.105/0.42 = 0.25 up.
+        // lon: -87.805 is 0.095/0.36 = 0.264 across; lat: 41.755 is 0.105/0.43 = 0.244 up.
         let g = geometry();
         let (col, row) = project(41.755, -87.805, &g).unwrap();
-        // col = round(0.226 * (wp-1)) = round(0.226*95) = 21
-        assert_eq!(col, 21);
-        // row = (hp-1) - round(0.25*(hp-1)) = 127 - round(31.75) = 127 - 32 = 95
-        assert_eq!(row, 95);
+        // col = round(0.264 * (wp-1)) = round(0.264*95) = 25
+        assert_eq!(col, 25);
+        // row = (hp-1) - round(0.244*(hp-1)) = 151 - round(36.87) = 151 - 37 = 114
+        assert_eq!(row, 114);
     }
 
     #[test]

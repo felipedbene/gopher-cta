@@ -136,9 +136,9 @@ overkill at city scale). All the knobs live at the top of that file, labelled
 
 ```rust
 pub const LAT_MIN: f64 = 41.65;       // south edge
-pub const LAT_MAX: f64 = 42.07;       // north edge
+pub const LAT_MAX: f64 = 42.08;     // north edge (un-clips the coast tip near Evanston)
 pub const LON_MIN: f64 = -87.90;      // west edge
-pub const LON_MAX: f64 = -87.48;      // east edge (past the shore into open lake)
+pub const LON_MAX: f64 = -87.54;     // east edge (just past the shore; trims open lake)
 pub const W: usize          = 48;     // column budget (braille cells); rows derived (~36)
 pub const CELL_ASPECT: f64  = 2.0;    // terminal cell height/width
 pub const LAT_KM_PER_DEG: f64 = 111.32;

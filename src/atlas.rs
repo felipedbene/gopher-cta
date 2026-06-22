@@ -281,9 +281,9 @@ impl Atlas {
             }
         }
 
-        // "LAKE MICHIGAN" down the far-east water column, vertically centered. The
-        // coast peaks well west of here, so these cells are open lake; the label
-        // reads as water (east of the coast) vs. landmark letters (west of it).
+        // "LAKE MICHIGAN" down the far-east water column, vertically centered.
+        // With the lake band tightened, the frame edge sits near the coast, so
+        // the label reads as water (east of the coast) without floating.
         let col = geom.wc as i32 - 2;
         let start = (geom.hc as i32 - LAKE_LABEL.len() as i32) / 2;
         for (i, ch) in LAKE_LABEL.chars().enumerate() {
@@ -526,7 +526,9 @@ mod tests {
             .filter_map(|l| l.chars().nth(geom.wc - 2))
             .filter(|c| *c != ' ')
             .collect();
-        assert_eq!(column, "LAKEMICHIGAN");
+        // The label reads top-to-bottom; the south coast can also touch this
+        // column lower down, so assert containment rather than exact equality.
+        assert!(column.contains("LAKEMICHIGAN"), "got column {column:?}");
     }
 
     #[test]
