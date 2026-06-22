@@ -1,0 +1,24 @@
+# gitleaks config: default rules + a CTA-specific rule, minus known false positives.
+# Used by the pre-commit hook and the CI `secrets` job. See .pre-commit-config.yaml.
+
+[extend]
+useDefault = true   # keep gitleaks' built-in provider rules (AWS, GitHub, generic, …)
+
+# The exact shape that leaked once: a real CTA Train Tracker key (32 hex chars)
+# assigned to the env var. Belt-and-suspenders over the generic-api-key rule.
+[[rules]]
+id = "cta-train-api-key"
+description = "CTA Train Tracker API key (32-char hex)"
+regex = '''(?i)CTA_TRAIN_API_KEY\s*[=:]\s*['"]?[0-9a-fA-F]{32}['"]?'''
+keywords = ["cta_train_api_key"]
+
+# Note: Go's RE2 regexp engine has no backreferences — keep allowlist patterns
+# simple. (An empty `CTA_TRAIN_API_KEY=` needs no entry: it matches no rule.)
+[allowlist]
+description = "Placeholders and non-secret sample data (not real keys)"
+regexes = [
+  '''your-train-tracker-key-here''',  # README placeholder
+]
+paths = [
+  '''fixtures/positions\.json''',  # recorded transit snapshot, no secrets
+]

@@ -12,6 +12,17 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Non-skippable secret scan (same .gitleaks.toml the pre-commit hook uses).
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # scan full history, not just the tip
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   test:
     runs-on: ubuntu-latest
     steps:

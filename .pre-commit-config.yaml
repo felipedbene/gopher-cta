@@ -1,0 +1,9 @@
+# Local secret-scanning guard. One-time setup after cloning:
+#   pre-commit install
+# Then every `git commit` is scanned for secrets before it's recorded; the same
+# gitleaks rules (.gitleaks.toml) run in CI as the non-skippable backstop.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks

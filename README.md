@@ -199,6 +199,16 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
 
+### Secret scanning
+
+A gitleaks pre-commit hook (config in `.gitleaks.toml`) blocks secrets before
+they're committed; CI runs the same scan as a non-skippable backstop. Enable the
+local hook once after cloning:
+
+```sh
+pre-commit install               # needs `pre-commit` (brew install pre-commit)
+```
+
 Covered: braille bit-mapping (spec vectors), projection (bbox corners land at
 canvas corners, known lat/lon → expected cell, out-of-bbox dropped), render
 (known feed → expected listing/links, map braille+footer, train detail
