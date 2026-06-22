@@ -139,7 +139,7 @@ pub const LAT_MIN: f64 = 41.65;       // south edge
 pub const LAT_MAX: f64 = 42.07;       // north edge
 pub const LON_MIN: f64 = -87.90;      // west edge
 pub const LON_MAX: f64 = -87.52;      // east edge
-pub const W: usize          = 80;     // column budget (braille cells); rows derived
+pub const W: usize          = 48;     // column budget (braille cells); rows derived (~36)
 pub const CELL_ASPECT: f64  = 2.0;    // terminal cell height/width
 pub const LAT_KM_PER_DEG: f64 = 111.32;
 ```

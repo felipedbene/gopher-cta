@@ -37,7 +37,9 @@ pub const LAT_KM_PER_DEG: f64 = 111.32;
 pub const CELL_ASPECT: f64 = 2.0;
 
 // --- TUNABLE: column budget in character cells. Rows are derived from it. ---
-pub const W: usize = 80;
+// 48 keeps the full-system map close to one terminal page (body ~36 rows) so it
+// reads as a map rather than a multi-page scroll; raise it for more resolution.
+pub const W: usize = 48;
 
 /// Canvas geometry derived from the bbox, the column budget `W`, and CELL_ASPECT.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,8 +107,8 @@ mod tests {
         let g = geometry();
         assert_eq!(g.wc, W);
         assert_eq!(g.wp, 2 * W);
-        // h_km/w_km ~ 1.485, * (80/2) = 59.4 -> 59 rows. Taller than wide.
-        assert_eq!(g.hc, 59);
+        // h_km/w_km ~ 1.485, * (48/2) = 35.64 -> 36 rows. Taller than wide.
+        assert_eq!(g.hc, 36);
         assert_eq!(g.hp, 4 * g.hc);
         // Faithful aspect: on-screen height (rows * CELL_ASPECT) vs width (cols)
         // should track the real km aspect to within a row.
@@ -135,10 +137,10 @@ mod tests {
         // lon: -87.805 is 0.095/0.38 = 0.25 across; lat: 41.755 is 0.105/0.42 = 0.25 up.
         let g = geometry();
         let (col, row) = project(41.755, -87.805, &g).unwrap();
-        // col = round(0.25 * (wp-1)) = round(0.25*159) = 40
-        assert_eq!(col, 40);
-        // row = (hp-1) - round(0.25*(hp-1)) = 235 - round(58.75) = 235 - 59 = 176
-        assert_eq!(row, 176);
+        // col = round(0.25 * (wp-1)) = round(0.25*95) = 24
+        assert_eq!(col, 24);
+        // row = (hp-1) - round(0.25*(hp-1)) = 143 - round(35.75) = 143 - 36 = 107
+        assert_eq!(row, 107);
     }
 
     #[test]
