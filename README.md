@@ -233,6 +233,32 @@ the bundled fixture (no network/TLS needed at all). Verified under emulation:
 the big-endian binary fetches live CTA data over HTTPS (OpenSSL) and writes the
 full braille-map + drill-down tree.
 
+## Container / Kubernetes
+
+The fetcher–daemon split maps cleanly onto a single pod with two containers
+sharing an `emptyDir`: the **fetcher** writes the tree to `/srv` and flips
+`/srv/current`; **geomyidae** serves `/srv/current` read-only. No PVC — the tree
+is regenerated every interval, so ephemeral storage is the right fit.
+
+```
+Dockerfile                    fetcher image (Rust build → debian-slim)
+deploy/Dockerfile.geomyidae   geomyidae image (built from bitreich source)
+deploy/gopher-cta.yaml        Secret + Deployment (2 containers, emptyDir) + Service
+```
+
+```sh
+docker build -t ghcr.io/<you>/gopher-cta:latest .
+docker build -t ghcr.io/<you>/geomyidae:latest -f deploy/Dockerfile.geomyidae deploy
+# edit image names + the geomyidae -h <host> + the CTA key in the Secret, then:
+kubectl apply -f deploy/gopher-cta.yaml
+```
+
+Both containers run unprivileged (`nobody`, dropped caps, read-only rootfs); an
+`fsGroup` makes the shared `emptyDir` writable for the fetcher. The Service maps
+gopher's port 70 to the unprivileged container port 7070. Set geomyidae's
+`-h <host>` to the address clients reach it on so the `.gph` `server` placeholder
+resolves correctly.
+
 ## Scope
 
 CTA only this build. No Metra/GTFS-RT (stub), no auth, no HTTP frontend, no

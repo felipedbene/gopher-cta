@@ -1,0 +1,108 @@
+# gopher-cta on Kubernetes: the fetcher and geomyidae run as TWO CONTAINERS in
+# one pod, sharing an emptyDir. The fetcher writes the gopher tree to /srv and
+# flips /srv/current; geomyidae serves /srv/current read-only. No PVC — the tree
+# is regenerated every interval, so ephemeral node storage is exactly right.
+#
+# Build & push the two images first (names below are placeholders):
+#   docker build -t ghcr.io/felipedbene/gopher-cta:latest .
+#   docker build -t ghcr.io/felipedbene/geomyidae:latest -f deploy/Dockerfile.geomyidae deploy
+# Then: kubectl apply -f deploy/gopher-cta.yaml   (NOT done here — manifests only.)
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gopher-cta-secret
+type: Opaque
+stringData:
+  # Your CTA Train Tracker key. Leave empty to serve the bundled fixture offline.
+  CTA_TRAIN_API_KEY: ""
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gopher-cta
+  labels:
+    app: gopher-cta
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gopher-cta
+  template:
+    metadata:
+      labels:
+        app: gopher-cta
+    spec:
+      securityContext:
+        # nobody:nogroup. fsGroup makes the shared emptyDir group-writable so the
+        # (non-root) fetcher can publish into it.
+        fsGroup: 65534
+      volumes:
+        - name: tree
+          emptyDir: {}
+      containers:
+        # --- writer: fetch the feed and publish the tree every interval ---
+        - name: fetcher
+          image: ghcr.io/felipedbene/gopher-cta:latest
+          args: ["--interval", "30", "--out", "/srv"]
+          envFrom:
+            - secretRef:
+                name: gopher-cta-secret
+          volumeMounts:
+            - name: tree
+              mountPath: /srv
+          securityContext:
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: "10m", memory: "32Mi" }
+            limits: { cpu: "250m", memory: "128Mi" }
+        # --- reader: serve current/ over gopher ---
+        - name: geomyidae
+          image: ghcr.io/felipedbene/geomyidae:latest
+          # Set -h to the host clients actually reach this on (LB / node address);
+          # geomyidae substitutes it for the `server` token in the .gph menus.
+          args: ["-d", "-b", "/srv/current", "-p", "7070", "-h", "gopher.example.com"]
+          ports:
+            - name: gopher
+              containerPort: 7070
+          volumeMounts:
+            - name: tree
+              mountPath: /srv
+              readOnly: true
+          securityContext:
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            tcpSocket:
+              port: 7070
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "10m", memory: "16Mi" }
+            limits: { cpu: "100m", memory: "64Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gopher-cta
+  labels:
+    app: gopher-cta
+spec:
+  type: LoadBalancer
+  selector:
+    app: gopher-cta
+  ports:
+    # Gopher's well-known port is 70; map it to the unprivileged container port.
+    - name: gopher
+      port: 70
+      targetPort: 7070
+      protocol: TCP

@@ -1,0 +1,7 @@
+/target
+/target-ppc64
+/dist
+/.git
+.env
+*.log
+nohup.out

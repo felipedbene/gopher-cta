@@ -1,0 +1,28 @@
+# geomyidae image: the gopher daemon that serves the fetcher's static tree.
+#
+# geomyidae isn't packaged in Debian/Alpine, so build it from the canonical
+# bitreich source. Only the git:// protocol (port 9418) is a reliable source
+# (the HTTPS "tarball" URL returns an HTML page). Build host needs 9418 egress.
+FROM debian:bookworm-slim AS build
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates gcc make libc6-dev \
+ && rm -rf /var/lib/apt/lists/*
+# Pin a ref for reproducibility if you like (e.g. a tag/commit); default is tip.
+ARG GEOMYIDAE_REF=master
+# Disable the optional gophers/TLS support (empty TLS_*FLAGS): we don't serve
+# gophers, and this drops the libtls/libssl/libcrypto runtime deps, so the
+# runtime image needs only libc.
+RUN git clone git://bitreich.org/geomyidae /src \
+ && cd /src && git checkout "$GEOMYIDAE_REF" \
+ && make TLS_CFLAGS= TLS_LDFLAGS=
+
+FROM debian:bookworm-slim
+COPY --from=build /src/geomyidae /usr/local/bin/geomyidae
+USER nobody:nogroup
+EXPOSE 7070
+# -d: stay in foreground (no daemon fork) so the container stays up.
+# -b: base dir (the fetcher's atomically-updated `current` symlink).
+# -p: listen port (>1024 so we run unprivileged).
+# Pass -h <advertised-host> in the pod args so geomyidae fills the `server`
+# placeholder in .gph menus with the address clients actually reach it on.
+ENTRYPOINT ["geomyidae", "-d", "-b", "/srv/current", "-p", "7070"]
