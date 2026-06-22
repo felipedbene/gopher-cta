@@ -117,6 +117,12 @@ Actual setup (`gopher://10.0.10.69:7070`):
 2. `gopher-cta-fetcher` — the fetcher, `--env-file .env -v <repo>/public:/srv
    --interval 30`, regenerates the tree (live trains + narration) every 30s.
 
+Compose has `pull_policy: always`, so plain `docker compose up -d` PULLS the
+CI-published GHCR `:latest` — correct once a commit is pushed and CI has built it.
+**To preview an unpushed local change, you must bypass the pull:**
+`docker compose up -d --build --pull never fetcher` (otherwise the stale GHCR
+image overwrites your fresh local build and the new pages don't appear).
+
 To redeploy a code change: `felipe` pushes the image (keychain), then
 ```sh
 docker rm -f gopher-cta-fetcher
