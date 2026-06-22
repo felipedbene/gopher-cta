@@ -24,6 +24,11 @@ const FIXTURE: &str = include_str!("../fixtures/positions.json");
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    // Load a local .env (gitignored) if present, so CTA_TRAIN_API_KEY and the
+    // GOPHER_* overrides can live in a file instead of the shell environment.
+    // A real exported env var still wins (dotenvy does not overwrite).
+    let _ = dotenvy::dotenv();
+
     let host = env::var("GOPHER_HOST").unwrap_or_else(|_| "localhost".to_string());
     let port: u16 = env::var("GOPHER_PORT")
         .ok()

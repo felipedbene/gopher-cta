@@ -63,6 +63,14 @@ demoable and testable offline. Get a free key at
 CTA_TRAIN_API_KEY=xxxx GOPHER_PORT=7070 cargo run   # live data
 ```
 
+A local `.env` (gitignored) is loaded at startup, so you can drop the key in a
+file instead of exporting it. A real exported env var still takes precedence:
+
+```sh
+# .env
+CTA_TRAIN_API_KEY=your-train-tracker-key-here
+```
+
 ## How the braille map works
 
 Each Braille glyph (base codepoint **U+2800**) is a 2-wide × 4-tall grid of 8
