@@ -1,0 +1,65 @@
+{
+  "ctatt": {
+    "tmst": "2026-06-21T02:14:30",
+    "errCd": "0",
+    "errNm": null,
+    "route": [
+      {
+        "@name": "red",
+        "train": [
+          { "rn": "801", "destNm": "Howard", "nextStaNm": "Loyola", "arrT": "2026-06-21T02:17:00", "isApp": "0", "isDly": "0", "trDr": "1", "lat": "42.00857", "lon": "-87.66145", "heading": "358" },
+          { "rn": "812", "destNm": "Howard", "nextStaNm": "Fullerton", "arrT": "2026-06-21T02:16:00", "isApp": "1", "isDly": "0", "trDr": "1", "lat": "41.92533", "lon": "-87.65302", "heading": "20" },
+          { "rn": "823", "destNm": "95th/Dan Ryan", "nextStaNm": "Roosevelt", "arrT": "2026-06-21T02:18:00", "isApp": "0", "isDly": "0", "trDr": "5", "lat": "41.86747", "lon": "-87.62716", "heading": "182" },
+          { "rn": "834", "destNm": "95th/Dan Ryan", "nextStaNm": "Garfield", "arrT": "2026-06-21T02:20:00", "isApp": "0", "isDly": "0", "trDr": "5", "lat": "41.79542", "lon": "-87.63110", "heading": "180" },
+          { "rn": "845", "destNm": "95th/Dan Ryan", "nextStaNm": "87th", "arrT": "2026-06-21T02:15:30", "isApp": "1", "isDly": "0", "trDr": "5", "lat": "41.73910", "lon": "-87.62425", "heading": "178" }
+        ]
+      },
+      {
+        "@name": "blue",
+        "train": [
+          { "rn": "120", "destNm": "O'Hare", "nextStaNm": "Jefferson Park", "arrT": "2026-06-21T02:19:00", "isApp": "0", "isDly": "0", "trDr": "1", "lat": "41.97056", "lon": "-87.76040", "heading": "315" },
+          { "rn": "131", "destNm": "O'Hare", "nextStaNm": "Logan Square", "arrT": "2026-06-21T02:16:30", "isApp": "0", "isDly": "0", "trDr": "1", "lat": "41.92953", "lon": "-87.70816", "heading": "300" },
+          { "rn": "142", "destNm": "Forest Park", "nextStaNm": "UIC-Halsted", "arrT": "2026-06-21T02:17:30", "isApp": "0", "isDly": "0", "trDr": "5", "lat": "41.87503", "lon": "-87.66948", "heading": "250" },
+          { "rn": "153", "destNm": "Forest Park", "nextStaNm": "Pulaski", "arrT": "2026-06-21T02:21:00", "isApp": "0", "isDly": "1", "trDr": "5", "lat": "41.87447", "lon": "-87.72530", "heading": "270" }
+        ]
+      },
+      {
+        "@name": "brn",
+        "train": [
+          { "rn": "411", "destNm": "Kimball", "nextStaNm": "Western", "arrT": "2026-06-21T02:18:00", "isApp": "0", "isDly": "0", "trDr": "1", "lat": "41.96650", "lon": "-87.68837", "heading": "320" },
+          { "rn": "415", "destNm": "Loop", "nextStaNm": "Belmont", "arrT": "2026-06-21T02:16:00", "isApp": "1", "isDly": "0", "trDr": "5", "lat": "41.93953", "lon": "-87.65304", "heading": "150" }
+        ]
+      },
+      {
+        "@name": "g",
+        "train": [
+          { "rn": "010", "destNm": "Harlem/Lake", "nextStaNm": "Clinton", "arrT": "2026-06-21T02:17:00", "isApp": "0", "isDly": "0", "trDr": "1", "lat": "41.88557", "lon": "-87.64108", "heading": "270" },
+          { "rn": "021", "destNm": "Ashland/63rd", "nextStaNm": "35th-Bronzeville-IIT", "arrT": "2026-06-21T02:19:30", "isApp": "0", "isDly": "0", "trDr": "5", "lat": "41.83157", "lon": "-87.62576", "heading": "180" }
+        ]
+      },
+      {
+        "@name": "org",
+        "train": [
+          { "rn": "705", "destNm": "Midway", "nextStaNm": "Pulaski", "arrT": "2026-06-21T02:20:00", "isApp": "0", "isDly": "0", "trDr": "5", "lat": "41.79937", "lon": "-87.72514", "heading": "225" },
+          { "rn": "712", "destNm": "Loop", "nextStaNm": "Halsted", "arrT": "2026-06-21T02:16:30", "isApp": "0", "isDly": "0", "trDr": "1", "lat": "41.84671", "lon": "-87.64833", "heading": "45" }
+        ]
+      },
+      {
+        "@name": "p",
+        "train": [
+          { "rn": "508", "destNm": "Linden", "nextStaNm": "Davis", "arrT": "2026-06-21T02:18:30", "isApp": "0", "isDly": "0", "trDr": "1", "lat": "42.04675", "lon": "-87.68372", "heading": "10" }
+        ]
+      },
+      {
+        "@name": "pink",
+        "train": [
+          { "rn": "318", "destNm": "54th/Cermak", "nextStaNm": "Polk", "arrT": "2026-06-21T02:17:00", "isApp": "0", "isDly": "0", "trDr": "5", "lat": "41.87145", "lon": "-87.66948", "heading": "230" }
+        ]
+      },
+      {
+        "@name": "y",
+        "train": { "rn": "601", "destNm": "Howard", "nextStaNm": "Oakton-Skokie", "arrT": "2026-06-21T02:19:00", "isApp": "0", "isDly": "0", "trDr": "5", "lat": "42.02560", "lon": "-87.74722", "heading": "190" }
+      }
+    ]
+  }
+}
