@@ -30,6 +30,11 @@ const KEEP_SNAPSHOTS: usize = 3;
 /// verbatim by geomyidae at the `caps.txt` selector.
 const CAPS_TXT: &[u8] = include_bytes!("../caps.txt");
 
+/// Crawler policy. Disallows the ephemeral `/train/` detail pages (churning run
+/// numbers) while leaving the stable-selector tree indexable. Served at the
+/// `robots.txt` selector; written into every snapshot so it survives republish.
+const ROBOTS_TXT: &[u8] = include_bytes!("../robots.txt");
+
 /// Fetcher configuration, parsed from CLI args / env.
 pub struct Config {
     pub out: PathBuf,
@@ -144,6 +149,7 @@ fn publish(
 ///   events.txt           AI event advisory
 ///   about.txt            about page (text)
 ///   caps.txt             GopherII caps policy file (verbatim, CRLF)
+///   robots.txt           crawler policy (disallows ephemeral /train/ pages)
 ///   <line>/index.gph     per-line menu, each train a drill-down link
 ///   train/<run>.txt      per-train detail page (text)
 ///   landmarks/index.gph  type-1 menu of Chicago landmarks
@@ -188,6 +194,9 @@ fn write_tree(
     // into every snapshot so it survives the atomic republish — geomyidae serves
     // it verbatim at the `caps.txt` selector. Authored content, not generated.
     fs::write(dir.join("caps.txt"), CAPS_TXT)?;
+    // Crawler policy (keeps indexers off the ephemeral /train/ pages). Likewise
+    // written into every snapshot so it persists across republish.
+    fs::write(dir.join("robots.txt"), ROBOTS_TXT)?;
 
     // One submenu directory per line (its index.gph is the per-line listing).
     for &line in render::LINE_ORDER {
@@ -508,6 +517,11 @@ mod tests {
         // canonical (mis)spellings preserved
         assert!(caps_s.contains("PathDelimeter=/"));
         assert!(caps_s.contains("PathKeepPreDelimeter=FALSE"));
+
+        // robots.txt is published and disallows the ephemeral train pages.
+        let robots = fs::read_to_string(snap.join("robots.txt")).unwrap();
+        assert!(robots.contains("User-agent: *"));
+        assert!(robots.contains("Disallow: /train/"));
 
         // landmarks: root links the menu; the menu drills into a detail page;
         // the page exists with matching content.

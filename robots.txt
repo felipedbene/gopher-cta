@@ -1,0 +1,14 @@
+# robots.txt — crawler policy for the CTA transit gopherhole
+# Served at gopher selector: robots.txt
+#
+# Per-train detail pages (/train/<run>.txt) are EPHEMERAL: CTA run numbers churn
+# as trains enter and leave service, so those selectors appear and vanish within
+# minutes — indexing them just fills a search index with dead links. Everything
+# else (maps, atlas, landmarks, per-line menus, narrative, about, caps) has a
+# stable selector and is fine to index, even though some content is live.
+#
+# The tree republishes every ~30s, so there's no value in crawling faster.
+
+User-agent: *
+Disallow: /train/
+Crawl-delay: 30
