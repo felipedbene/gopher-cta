@@ -2,7 +2,8 @@
 
 How the pieces fit today, and the plan for moving the live deployment onto
 Kubernetes. For day-to-day working notes (commands, gotchas, conventions) see
-[`../CLAUDE.md`](../CLAUDE.md); for user-facing usage see [`../README.md`](../README.md).
+[`../CLAUDE.md`](../CLAUDE.md); for user-facing usage see [`../README.md`](../README.md);
+for the production deploy runbook (RackNerd VPS) see [`DEPLOY.md`](DEPLOY.md).
 
 ---
 

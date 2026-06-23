@@ -99,12 +99,15 @@ does not allow user interaction"), and `gh auth token` lacks `write:packages`.
 So: **Claude builds + tags the image; felipe runs `docker push …` in his own
 Terminal** (his keychain has the working ghcr creds).
 
-**The live deploy is NOT k8s — it's two local docker containers on felipe's Mac
-Studio** (this machine; its LAN IP is `10.0.10.69`). `deploy/gopher-cta.yaml`
-(k8s 2-container pod + LoadBalancer) exists but is unapplied; the geomyidae image
-isn't in ghcr. Don't go looking in the cluster.
+**PRODUCTION is the RackNerd VPS** (`gopher://gopher.debene.dev:70/`,
+`192.210.238.140`, x86_64) — fetcher + geomyidae via Docker Compose, sourcing the
+fetcher image through a gitignored `docker-compose.override.yml` (local
+`gopher-cta-local:amd64` build). **The full runbook is
+[`docs/DEPLOY.md`](docs/DEPLOY.md)** — deploy steps, verification, troubleshooting.
+NOT k8s: `deploy/gopher-cta.yaml` exists but is unapplied. Don't look in the cluster.
 
-Actual setup (`gopher://10.0.10.69:7070`):
+The Mac Studio (`gopher://10.0.10.69:7070`) is just a **dev/preview box**, not
+prod. Its setup:
 1. `geo` — `geomyidae:local`, `-p 7070:7070`, mounts repo `public/ -> /srv`,
    serves `/srv/current`. Long-running; serves whatever the fetcher writes, **no
    restart needed** when the tree updates. **Must be started with `-h 10.0.10.69`**

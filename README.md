@@ -16,6 +16,10 @@ Written in Rust, minimal deps. No protocol server of its own.
 
 ## Quickstart (local, with Docker)
 
+> Deploying the live server (RackNerd VPS, `gopher://gopher.debene.dev:70/`)?
+> See the operational runbook in [`docs/DEPLOY.md`](docs/DEPLOY.md). The
+> quickstart below is the local/dev flow.
+
 Clone → browsing, no native geomyidae needed. Fixture mode (no key); add
 `-e CTA_TRAIN_API_KEY=<key>` for live data.
 
