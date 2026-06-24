@@ -62,40 +62,55 @@ loose files.
 
 ## Image strategy
 
-There are two ways to source the fetcher image; the deployment picks one via
-`docker-compose.override.yml`.
+Production runs the **CI image**: `ghcr.io/felipedbene/gopher-cta:latest`, built
+multi-arch (amd64+arm64) by GitHub Actions on every push to `master`, with
+`pull_policy: always`. The base `docker-compose.yml` is self-sufficient for
+production — `geomyidae`'s advertised host/port come from `$GOPHER_HOST` /
+`$GOPHER_PORT` in `.env` (the `-o` flag is the *advertised* port clients reach;
+`-p 7070` in the image ENTRYPOINT is the real listen port).
 
-- **CI image (default, base compose):** `ghcr.io/felipedbene/gopher-cta:latest`,
-  built multi-arch by GitHub Actions on every push to `master`, with
-  `pull_policy: always`.
-- **Local build (current production, via override):** `gopher-cta-local:amd64`,
-  built on the VPS from the working tree, with `pull_policy: never`.
-
-`docker-compose.override.yml` pins the local image and is auto-merged by Compose.
-The geomyidae service's `command` in the override (`-h gopher.debene.dev -o 70`)
-is **appended** to the image ENTRYPOINT (`geomyidae -d -b /srv/current -p 7070`),
-not substituted — so the base dir and listen port come from the ENTRYPOINT, and
-the override only adds the advertised host/port. `-p` is the real listen port
-(7070); `-o` is the *advertised* port (70, the host-mapped one clients reach).
+> **Legacy:** production used to run a local build (`gopher-cta-local:amd64`,
+> `pull_policy: never`) pinned via a gitignored `docker-compose.override.yml`. That
+> override is **retired** under the auto-deploy flow below — delete it so the
+> fetcher tracks the CI image. (A local build is still available anywhere for dev
+> via `docker compose up -d --build`.)
 
 ---
 
 ## Deploy / update procedure
 
-This is the validated path for shipping a code change (the common case):
+**Shipping a change is now automatic.** Push to `master` → CI tests, builds, and
+publishes `ghcr:latest` → **Watchtower** on the VPS notices and recreates the
+fetcher in place. No SSH, no manual pull. Watchtower runs under the compose
+`deploy` profile, polls every 5 min, watches only the fetcher (label-enabled), and
+`--cleanup`s the old image.
+
+### One-time setup on the VPS
 
 ```bash
 cd ~/gopher-cta
-git pull                       # get the change you're deploying
-docker compose build fetcher   # rebuild gopher-cta-local:amd64 from the working tree
-docker compose up -d           # recreate fetcher (new image) + apply override to geo
-sleep 35                       # wait for at least one publish cycle (~30s)
+rm -f docker-compose.override.yml     # retire the local-build pin (use the CI image)
+docker login ghcr.io                  # only if the GHCR package is PRIVATE; skip if public
+docker compose --profile deploy up -d # fetcher (CI image) + geomyidae + watchtower
 ```
 
-`docker compose up -d` recreates only the containers whose config or image
-changed, so geomyidae isn't rebuilt (it has no source change). If you're on the CI
-image instead of the local override, swap the build step for
-`docker compose pull fetcher`.
+If you'd rather not store registry creds, make the package public instead:
+GitHub → repo **Packages** → `gopher-cta` → **Package settings** → *Change
+visibility* → Public. Then the `~/.docker/config.json` mount on the watchtower
+service is a harmless no-op.
+
+After that, **you never deploy by hand** — merge to `master` and wait ~5 min.
+Watch it happen with `docker compose logs -f watchtower` (look for
+`Found new ... image` / `Stopping ...` / `Creating ...`).
+
+### Manual deploy (fallback / force-now)
+
+```bash
+cd ~/gopher-cta
+docker compose pull fetcher           # grab the latest CI image immediately
+docker compose --profile deploy up -d # recreate changed containers
+sleep 35                              # wait for at least one publish cycle (~30s)
+```
 
 After it settles, **verify** (see below) before announcing anything.
 
