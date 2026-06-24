@@ -5,24 +5,27 @@
 //! projected scene on a one-glyph-per-cell character grid, so distinct features
 //! read as distinct markers, disambiguated by a legend below the map.
 //!
-//! Markers are **plain ASCII** for portability across old/non-UTF-8 gopher
+//! Glyphs are **plain ASCII** for portability across old/non-UTF-8 gopher
 //! clients (and to dodge double-width emoji/CJK glyphs that would shear the
-//! grid): shoreline `#`, each landmark a unique mnemonic letter (W = Willis,
-//! F = Field Museum…), live trains as a 4-way heading arrow `^ > v <` (`o` when
-//! the feed reports no heading). The legend lists only the markers actually
-//! visible on the grid (not covered by a train or lost to a collision).
+//! grid): shoreline `#`, river `~`, expressways `= | / \` (slope-aware), live
+//! trains as a 4-way heading arrow `^ > v <` (`o` when the feed reports no
+//! heading). Places are named **inline** with short uppercase labels written at
+//! their cell (WILLIS, NAVY PIER, EVANSTON…) — converged with the braille map's
+//! look. Labels are collision-avoided: in a dense knot the loser is dropped whole
+//! rather than overprinting, and the footer reports how many of the in-frame
+//! places were named.
 //!
 //! Pixel-locked to the trains: cells come from the SAME [`project::project`] the
 //! braille map uses, collapsed from braille-pixel to char-cell `(px/2, py/4)`.
 //! There is no second projection.
 //!
-//! The static scene (shoreline + landmarks) is rasterized ONCE into a base grid
-//! at startup ([`Atlas::build`]); each publish clones that base and paints live
-//! trains on top, so geo never re-rasterizes.
+//! The static scene (shoreline + river + expressways + place names) is rasterized
+//! ONCE into a base grid at startup ([`Atlas::build`]); each publish clones that
+//! base and paints live trains on top, so geo never re-rasterizes.
 //!
 //! Z-order (painter's algorithm, higher priority wins):
-//!   shoreline < expressways < landmarks < trains.
-//! Expressways are drawn with a slope-aware glyph (`= | / \`).
+//!   shoreline < expressways < river < trains < labels.
+//! Place names sit above trains so a name never hides behind a train glyph.
 
 use serde::Deserialize;
 
@@ -34,13 +37,13 @@ use crate::transit::Positions;
 /// (mirrors the bundled positions fixture).
 const GEO_JSON: &str = include_str!("../chicago_geo.json");
 
-// Z-order priorities. The gaps (2, 4) are where track / station layers would
-// slot in if the overlay ever carried that geometry — the feed doesn't today.
-// The water label sits above everything so a stray near-shore train can't break
-// it (it lives in open water east of the coast, so nothing else is there anyway).
+// Z-order priorities. The gaps (4, 6) are where station / track-detail layers
+// would slot in if the overlay ever carried that geometry. Place-name labels sit
+// at the top (above trains) so a name never hides behind a train glyph — matching
+// the braille map, where labels also win.
 const PRIO_SHORE: u8 = 1;
-const PRIO_EXPRESSWAY: u8 = 2; // the reserved "track"-layer slot
-const PRIO_LANDMARK: u8 = 3;
+const PRIO_EXPRESSWAY: u8 = 2;
+const PRIO_RIVER: u8 = 3; // water drawn over roads (bridges read as the road below)
 const PRIO_TRAIN: u8 = 5;
 const PRIO_LABEL: u8 = 7;
 
@@ -48,11 +51,21 @@ const PRIO_LABEL: u8 = 7;
 /// of the coastline (the bbox is widened east to make room).
 const LAKE_LABEL: &str = "LAKE MICHIGAN";
 
+/// Outlying place anchors that aren't landmark POIs (suburbs / areas), labelled
+/// inline like the braille map so both surfaces name the same places. `(text,
+/// lat, lon)`; coordinates mirror the map's `MAP_LABELS`.
+const AREA_LABELS: &[(&str, f64, f64)] = &[
+    ("EVANSTON", 42.0450, -87.6840),
+    ("SKOKIE", 42.0380, -87.7510),
+    ("OAK PARK", 41.8870, -87.7890),
+    ("HYDE PARK", 41.7920, -87.6000),
+];
+
 // ANSI 256-colour codes for the static layers in the `.ansi` variant (trains
 // take their CTA line colour). `0` = uncoloured.
-const WATER_COLOR: u8 = 44; // cyan: shoreline + lake label
-const LANDMARK_COLOR: u8 = 250; // light grey, so coloured trains pop
+const WATER_COLOR: u8 = 44; // cyan: shoreline, river, lake label
 const EXPRESSWAY_COLOR: u8 = 240; // dark grey: roads recede behind coloured trains
+const PLACE_LABEL_COLOR: u8 = 231; // bright white: inline place names (matches the map)
 
 /// Expressway-segment glyph by slope (in cells): `=` horizontal, `|` vertical,
 /// `/` SW-NE, `\` NW-SE. Screen rows increase downward, so same-sign dx/dy is `\`.
@@ -72,6 +85,7 @@ fn road_glyph(dx: i32, dy: i32) -> char {
 /// On-grid ASCII markers. Single-width on every client; no emoji/CJK glyphs to
 /// shear the fixed-width grid, and readable on non-UTF-8 gopher clients.
 const SHORE_GLYPH: char = '#';
+const RIVER_GLYPH: char = '~'; // reads as water, distinct from the coast's '#'
 const TRAIN_GLYPH: char = 'o';
 
 /// On-grid marker for a train: a 4-way ASCII heading arrow (`^ > v <`), so the
@@ -93,7 +107,6 @@ fn heading_glyph(heading: Option<u16>) -> char {
 
 #[derive(Debug, Deserialize)]
 pub struct GeoData {
-    pub meta: Meta,
     pub shoreline: Shoreline,
     #[serde(default)]
     pub expressways: Vec<Expressway>,
@@ -119,13 +132,7 @@ pub struct River {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Meta {
-    pub name: String,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct Shoreline {
-    pub name: String,
     /// `[lat, lon]` anchors, ordered north -> south.
     pub points: Vec<[f64; 2]>,
 }
@@ -133,9 +140,13 @@ pub struct Shoreline {
 #[derive(Debug, Deserialize)]
 pub struct Landmark {
     pub name: String,
-    /// On-grid marker: a unique mnemonic letter (W = Willis, F = Field Museum…),
-    /// chosen in the data so it relates to the name. The legend maps it back.
+    /// Mnemonic letter (W = Willis, F = Field Museum…). No longer painted on the
+    /// atlas grid (inline `label` names replaced the letter+legend), but still the
+    /// stable key for the `/landmarks` menu and per-landmark detail selectors.
     pub marker: char,
+    /// Short uppercase name written inline on the atlas grid at the landmark's
+    /// cell (e.g. "WILLIS", "NAVY PIER") — the map-style place label.
+    pub label: String,
     pub lat: f64,
     pub lon: f64,
     /// Reserved for the per-landmark detail page (a deferred commit); parsed now
@@ -197,17 +208,28 @@ impl CharGrid {
         }
     }
 
-    /// The glyph currently at `(col, row)`, or `None` if out of frame. Used to
-    /// tell whether a landmark's marker survived on the rendered grid.
-    fn cell_at(&self, col: i32, row: i32) -> Option<char> {
-        if col < 0 || row < 0 {
-            return None;
+    /// Write `text` left-to-right starting at cell `(col, row)` at [`PRIO_LABEL`],
+    /// but ONLY if it doesn't overlap a label already placed — so place names thin
+    /// gracefully in dense areas (the loser is dropped whole) instead of garbling
+    /// into overlapping text. Off-frame characters clip (and don't block). Returns
+    /// whether the label landed.
+    fn place_label(&mut self, col: i32, row: i32, text: &str, color: u8) -> bool {
+        if row < 0 || row as usize >= self.hc {
+            return false;
         }
-        let (c, r) = (col as usize, row as usize);
-        if c >= self.wc || r >= self.hc {
-            return None;
+        let r = row as usize;
+        // All-or-nothing: reject if any on-frame cell already holds a label.
+        for i in 0..text.chars().count() as i32 {
+            let c = col + i;
+            if (0..self.wc as i32).contains(&c) && self.prio[r * self.wc + c as usize] == PRIO_LABEL
+            {
+                return false;
+            }
         }
-        Some(self.cells[r * self.wc + c])
+        for (i, ch) in text.chars().enumerate() {
+            self.put(col + i as i32, row, ch, PRIO_LABEL, color);
+        }
+        true
     }
 
     /// One line per row with trailing blanks trimmed, rows joined by `\n`.
@@ -299,6 +321,11 @@ pub struct Atlas {
     geo: GeoData,
     geom: Geometry,
     base: CharGrid,
+    /// Inline place names that actually landed on the grid, and how many were in
+    /// frame to begin with — the rest lost a same-cell collision (reported in the
+    /// footer, since there's no longer a legend listing every marker).
+    named: usize,
+    named_total: usize,
 }
 
 impl Atlas {
@@ -338,25 +365,59 @@ impl Atlas {
             }
         }
 
-        // Landmarks: one marker cell each (its mnemonic letter).
-        for m in &geo.landmarks {
-            if let Some((c, r)) = project_cell(m.lat, m.lon, &geom) {
-                base.put(c, r, m.marker, PRIO_LANDMARK, LANDMARK_COLOR);
+        // Chicago River + branches: drawn over the roads (water reads continuous;
+        // a road crossing shows below as the bridge), same cyan as the coast.
+        for river in &geo.rivers {
+            for seg in river.points.windows(2) {
+                if let (Some((c0, r0)), Some((c1, r1))) = (
+                    project_cell(seg[0][0], seg[0][1], &geom),
+                    project_cell(seg[1][0], seg[1][1], &geom),
+                ) {
+                    bresenham(c0, r0, c1, r1, |c, r| {
+                        base.put(c, r, RIVER_GLYPH, PRIO_RIVER, WATER_COLOR)
+                    });
+                }
             }
         }
 
         // "LAKE MICHIGAN" down the far-east water column, vertically centered.
-        // With the lake band tightened, the frame edge sits near the coast, so
-        // the label reads as water (east of the coast) without floating.
+        // Placed FIRST so it owns that column; later place names that would cross
+        // it lose the collision and drop.
         let col = geom.wc as i32 - 2;
         let start = (geom.hc as i32 - LAKE_LABEL.len() as i32) / 2;
         for (i, ch) in LAKE_LABEL.chars().enumerate() {
-            if ch != ' ' {
-                base.put(col, start + i as i32, ch, PRIO_LABEL, WATER_COLOR);
+            // Place the inter-word space too (at label priority) so it RESERVES
+            // that cell — otherwise an inline place name could slot a stray letter
+            // into the lake column between "LAKE" and "MICHIGAN".
+            base.put(col, start + i as i32, ch, PRIO_LABEL, WATER_COLOR);
+        }
+
+        // Inline place names (replacing the old letter markers + numbered legend).
+        // Sparse outlying areas first so they always land; then landmarks in data
+        // order (Willis leads the downtown knot, so it wins and the tightly-packed
+        // rest drop via collision rather than overprinting).
+        let mut named = 0usize;
+        let mut named_total = 0usize;
+        for (text, lat, lon) in AREA_LABELS {
+            if let Some((c, r)) = project_cell(*lat, *lon, &geom) {
+                named_total += 1;
+                named += base.place_label(c, r, text, PLACE_LABEL_COLOR) as usize;
+            }
+        }
+        for m in &geo.landmarks {
+            if let Some((c, r)) = project_cell(m.lat, m.lon, &geom) {
+                named_total += 1;
+                named += base.place_label(c, r, &m.label, PLACE_LABEL_COLOR) as usize;
             }
         }
 
-        Atlas { geo, geom, base }
+        Atlas {
+            geo,
+            geom,
+            base,
+            named,
+            named_total,
+        }
     }
 
     /// Render the atlas page (plain text): clone the static base, paint live
@@ -401,20 +462,6 @@ impl Atlas {
             );
         }
 
-        // Only landmarks whose marker still shows on the rendered grid — i.e.
-        // not off-bbox, not lost to a same-cell collision, and not covered by a
-        // train — so the legend lists exactly what's actually on the map.
-        let visible: Vec<&Landmark> = self
-            .geo
-            .landmarks
-            .iter()
-            .filter(|m| {
-                project_cell(m.lat, m.lon, &self.geom)
-                    .and_then(|(c, r)| grid.cell_at(c, r))
-                    .is_some_and(|ch| ch == m.marker)
-            })
-            .collect();
-
         let mut out = String::new();
         out.push_str("CTA 'L' -- geographic atlas\n");
         out.push_str(&format!(
@@ -429,10 +476,6 @@ impl Atlas {
             "feed time: {}\n",
             pos.feed_time.as_deref().unwrap_or("unknown")
         ));
-        out.push_str(&format!(
-            "overlay: {} ({})\n",
-            self.geo.meta.name, self.geo.shoreline.name
-        ));
         out.push_str("view: north up; west = city, east = Lake Michigan\n");
         out.push_str(&"-".repeat(self.geom.wc.min(78)));
         out.push('\n');
@@ -445,11 +488,11 @@ impl Atlas {
         out.push_str(&"-".repeat(self.geom.wc.min(78)));
         out.push('\n');
         out.push_str(&format!(
-            "{} trains plotted of {} reporting.  {} of {} landmarks shown.\n",
+            "{} trains plotted of {} reporting.  {} of {} places named.\n",
             plotted,
             pos.trains.len(),
-            visible.len(),
-            self.geo.landmarks.len(),
+            self.named,
+            self.named_total,
         ));
         out.push_str(&format!(
             "bbox lat[{}..{}] lon[{}..{}]\n",
@@ -458,6 +501,8 @@ impl Atlas {
             project::LON_MIN,
             project::LON_MAX,
         ));
+        // Layer key (mirrors the braille map's overlay note).
+        out.push_str("overlay: water -- lake + river (cyan)  expressways (= | / \\, grey)  place names (white)\n");
         if !self.geo.expressways.is_empty() {
             let names: Vec<&str> = self
                 .geo
@@ -465,15 +510,7 @@ impl Atlas {
                 .iter()
                 .map(|r| r.name.as_str())
                 .collect();
-            out.push_str(&format!("expressways  (= | / \\):  {}\n", names.join("; ")));
-        }
-
-        // Landmark legend — only the markers actually visible on the grid above,
-        // keyed by the on-grid letter (labels never go inline, where they'd
-        // collide on a char cell).
-        out.push_str("\nLANDMARKS  (marker -> place)\n");
-        for m in &visible {
-            out.push_str(&format!("  {}  {}\n", m.marker, m.name));
+            out.push_str(&format!("expressways:  {}\n", names.join("; ")));
         }
 
         // Per-line train counts (mirrors the braille map's legend).
@@ -625,9 +662,9 @@ mod tests {
         let mut g = CharGrid::new(3, 3);
         g.put(1, 1, SHORE_GLYPH, PRIO_SHORE, WATER_COLOR);
         g.put(1, 1, TRAIN_GLYPH, PRIO_TRAIN, 196); // higher: wins
-        g.put(1, 1, 'A', PRIO_LANDMARK, LANDMARK_COLOR); // lower than train: ignored
+        g.put(1, 1, RIVER_GLYPH, PRIO_RIVER, WATER_COLOR); // lower than train: ignored
         assert!(g.render().contains(TRAIN_GLYPH));
-        assert!(!g.render().contains('A'));
+        assert!(!g.render().contains(RIVER_GLYPH));
         assert!(!g.render().contains(SHORE_GLYPH));
     }
 
@@ -658,17 +695,22 @@ mod tests {
     // -- atlas rendering --
 
     #[test]
-    fn atlas_base_shows_shoreline_and_landmarks_without_trains() {
+    fn atlas_base_shows_shoreline_river_and_inline_names() {
         let atlas = Atlas::build(project::geometry());
         // No trains, so nothing overwrites the static layers.
         let body = atlas.render(&Positions::default(), "CTA 'L'");
         assert!(body.contains('#'), "shoreline marker missing from grid");
+        assert!(body.contains('~'), "river glyph missing from grid");
         assert!(body.contains("0 trains plotted of 0 reporting"));
-        assert!(body.contains("of 14 landmarks shown"));
-        // A marker with an isolated cell (Midway, far SW) is listed by mnemonic.
-        assert!(body.contains("  D  Midway (MDW)"));
-        // The off-bbox O'Hare is filtered out, not floated in the legend.
-        assert!(!body.contains("O'Hare"));
+        assert!(body.contains("places named"));
+        // Inline place names replace the old letter+legend: an isolated SW anchor
+        // (Midway) and a sparse suburb (Evanston) both land.
+        assert!(body.contains("MIDWAY"), "Midway inline label missing");
+        assert!(body.contains("EVANSTON"), "Evanston area label missing");
+        // Off-bbox O'Hare projects nowhere, so its label is never placed.
+        assert!(!body.contains("OHARE"));
+        // The numbered landmark legend is gone (names are inline now).
+        assert!(!body.contains("LANDMARKS  (marker"));
     }
 
     #[test]
@@ -703,9 +745,9 @@ mod tests {
         );
         assert!(body.contains("18 trains plotted of 18 reporting"));
         assert!(body.contains("offline fixture"));
-        // Legend present, listing only the visible markers.
-        assert!(body.contains("LANDMARKS"));
-        assert!(body.contains("of 14 landmarks shown"));
+        // Inline place names (no more numbered legend) + the layer key.
+        assert!(body.contains("places named"));
+        assert!(body.contains("overlay: water"));
         // Per-line counts mirror the braille map.
         assert!(body.contains("legend (trains per line):"));
         assert!(body.contains("Red      5"));
@@ -774,10 +816,13 @@ mod tests {
         let plain = atlas.render(&fixture_positions(), "CTA 'L'");
         let ansi = atlas.render_ansi(&fixture_positions(), "CTA 'L'");
         assert!(!plain.contains('\x1b'), "plain atlas must be ESC-free");
-        // Shoreline is always drawn, so its water colour is always present.
-        assert!(ansi.contains("\x1b[38;5;44m"), "shoreline colour missing");
-        // Same plain legend in both.
-        assert!(ansi.contains("LANDMARKS"));
+        // Shoreline/river is always drawn, so its water colour is always present.
+        assert!(ansi.contains("\x1b[38;5;44m"), "water colour missing");
+        // Inline place names render in white.
+        assert!(
+            ansi.contains("\x1b[38;5;231m"),
+            "place-name (white) colour missing"
+        );
         assert!(ansi.contains("18 trains plotted of 18 reporting"));
     }
 }

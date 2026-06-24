@@ -399,7 +399,7 @@ mod tests {
         // the atlas page is published alongside the braille map
         let atlas_txt = fs::read_to_string(link.join("atlas.txt")).unwrap();
         assert!(atlas_txt.contains("geographic atlas"));
-        assert!(atlas_txt.contains("LANDMARKS"));
+        assert!(atlas_txt.contains("places named"));
 
         // ANSI colour variants published, and they actually carry SGR codes
         assert!(fs::read_to_string(link.join("map.ansi"))

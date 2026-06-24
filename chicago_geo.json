@@ -122,19 +122,19 @@
   ],
 
   "landmarks": [
-    { "id": 1,  "name": "Willis Tower",          "marker": "W", "lat": 41.8789, "lon": -87.6359, "category": "skyline" },
-    { "id": 2,  "name": "Cloud Gate (The Bean)",  "marker": "B", "lat": 41.8827, "lon": -87.6233, "category": "park" },
-    { "id": 3,  "name": "Art Institute",          "marker": "A", "lat": 41.8796, "lon": -87.6237, "category": "museum" },
-    { "id": 4,  "name": "Buckingham Fountain",    "marker": "K", "lat": 41.8758, "lon": -87.6189, "category": "park" },
-    { "id": 5,  "name": "Navy Pier",              "marker": "N", "lat": 41.8917, "lon": -87.6063, "category": "landmark" },
-    { "id": 6,  "name": "Soldier Field",          "marker": "S", "lat": 41.8623, "lon": -87.6167, "category": "sport" },
-    { "id": 7,  "name": "Field Museum",           "marker": "F", "lat": 41.8663, "lon": -87.6170, "category": "museum" },
-    { "id": 8,  "name": "McCormick Place",        "marker": "M", "lat": 41.8514, "lon": -87.6166, "category": "landmark" },
-    { "id": 9,  "name": "United Center",          "marker": "U", "lat": 41.8807, "lon": -87.6742, "category": "sport" },
-    { "id": 10, "name": "Wrigley Field",          "marker": "R", "lat": 41.9484, "lon": -87.6553, "category": "sport" },
-    { "id": 11, "name": "Guaranteed Rate Field",  "marker": "G", "lat": 41.8300, "lon": -87.6338, "category": "sport" },
-    { "id": 12, "name": "Lincoln Park Zoo",       "marker": "L", "lat": 41.9217, "lon": -87.6334, "category": "park" },
-    { "id": 13, "name": "Midway (MDW)",           "marker": "D", "lat": 41.7868, "lon": -87.7522, "category": "transit_hub" },
-    { "id": 14, "name": "O'Hare (ORD)",           "marker": "O", "lat": 41.9786, "lon": -87.9047, "category": "transit_hub" }
+    { "id": 1,  "name": "Willis Tower",          "marker": "W", "label": "WILLIS",     "lat": 41.8789, "lon": -87.6359, "category": "skyline" },
+    { "id": 2,  "name": "Cloud Gate (The Bean)",  "marker": "B", "label": "THE BEAN",   "lat": 41.8827, "lon": -87.6233, "category": "park" },
+    { "id": 3,  "name": "Art Institute",          "marker": "A", "label": "ART INST",   "lat": 41.8796, "lon": -87.6237, "category": "museum" },
+    { "id": 4,  "name": "Buckingham Fountain",    "marker": "K", "label": "BUCKINGHAM", "lat": 41.8758, "lon": -87.6189, "category": "park" },
+    { "id": 5,  "name": "Navy Pier",              "marker": "N", "label": "NAVY PIER",  "lat": 41.8917, "lon": -87.6063, "category": "landmark" },
+    { "id": 6,  "name": "Soldier Field",          "marker": "S", "label": "SOLDIER",    "lat": 41.8623, "lon": -87.6167, "category": "sport" },
+    { "id": 7,  "name": "Field Museum",           "marker": "F", "label": "FIELD MUS",  "lat": 41.8663, "lon": -87.6170, "category": "museum" },
+    { "id": 8,  "name": "McCormick Place",        "marker": "M", "label": "MCCORMICK",  "lat": 41.8514, "lon": -87.6166, "category": "landmark" },
+    { "id": 9,  "name": "United Center",          "marker": "U", "label": "UNITED CTR", "lat": 41.8807, "lon": -87.6742, "category": "sport" },
+    { "id": 10, "name": "Wrigley Field",          "marker": "R", "label": "WRIGLEY",    "lat": 41.9484, "lon": -87.6553, "category": "sport" },
+    { "id": 11, "name": "Guaranteed Rate Field",  "marker": "G", "label": "SOX PARK",   "lat": 41.8300, "lon": -87.6338, "category": "sport" },
+    { "id": 12, "name": "Lincoln Park Zoo",       "marker": "L", "label": "LINCOLN PK", "lat": 41.9217, "lon": -87.6334, "category": "park" },
+    { "id": 13, "name": "Midway (MDW)",           "marker": "D", "label": "MIDWAY",     "lat": 41.7868, "lon": -87.7522, "category": "transit_hub" },
+    { "id": 14, "name": "O'Hare (ORD)",           "marker": "O", "label": "OHARE",      "lat": 41.9786, "lon": -87.9047, "category": "transit_hub" }
   ]
 }
