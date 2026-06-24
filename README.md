@@ -1,17 +1,20 @@
 # gopher-cta
 
 A **fetcher** that turns **live CTA 'L' train positions into a static gopher
-tree** — a geographic map rendered with Unicode Braille, per-line listings, and
-per-train detail pages — for an existing gopher daemon (**geomyidae**) to serve.
-Written in Rust, minimal deps. No protocol server of its own.
+tree** for an existing gopher daemon (**geomyidae**) to serve. It renders two map
+surfaces — a Unicode-**braille** plot and a char-cell **geographic atlas**, both
+overlaid with the Chicago coastline, river, expressways and mnemonic place codes
+(plain + ANSI-colour variants) — plus per-line listings, per-train detail pages, a
+landmarks menu, and AI narration panels. Written in Rust, minimal deps. No
+protocol server of its own.
 
 ```
-  CTA Train Tracker ─► CtaSource ─► render (braille map, menus, pages)
-  (or bundled fixture)                     │
-                                           ▼  atomic publish
-                              <out>/out-<ts>/ … ──► flip <out>/current symlink
-                                           │
-                                  geomyidae serves <out>/current
+  CTA Train Tracker ─► CtaSource ─► render (braille map + atlas, menus,
+  (or bundled fixture)             │        detail pages, AI panels)
+                                   ▼  atomic publish
+                      <out>/out-<ts>/ … ──► flip <out>/current symlink
+                                   │
+                          geomyidae serves <out>/current
 ```
 
 ## Quickstart (local, with Docker)
@@ -28,13 +31,16 @@ Clone → browsing, no native geomyidae needed. Fixture mode (no key); add
 docker build -t gopher-cta:local .
 docker run --rm -e CTA_TRAIN_API_KEY= -v "$PWD/public":/srv gopher-cta:local --once --out /srv
 
-# 2. serve it with geomyidae
+# 2. serve it with geomyidae (-h: the host clients reach, baked into menu links;
+#    without it geomyidae advertises the container id and link-following breaks)
 docker build -t geomyidae:local -f deploy/Dockerfile.geomyidae deploy
-docker run --rm -d --name geo -p 7070:7070 -v "$PWD/public":/srv:ro geomyidae:local
+docker run --rm -d --name geo -p 7070:7070 -v "$PWD/public":/srv:ro geomyidae:local -h localhost
 
 # 3. consume it
 printf '/red\r\n' | nc localhost 7070        # per-line drill-down
-curl gopher://localhost:7070/0/map.txt       # the braille map
+curl gopher://localhost:7070/0/map.txt       # the braille map (plain)
+curl gopher://localhost:7070/0/map.ansi      # …in colour, with the Chicago overlay
+curl gopher://localhost:7070/0/atlas.ansi    # the char-cell geographic atlas
 lynx gopher://localhost:7070                  # browse interactively
 
 docker rm -f geo                              # stop the daemon
@@ -47,13 +53,20 @@ then `geomyidae -b ./public/current -p 7070`. Full options below.
 
 The fetcher writes this under each snapshot (the daemon serves `current/`):
 
-| Path                | Type | Content                                                       |
-| ------------------- | ---- | ------------------------------------------------------------- |
-| `index.gph`         | menu | Root: link to the map + one entry per line (with live counts).|
-| `map.txt`           | text | **Braille geographic plot of every live train** + legend + feed time. |
-| `<line>/index.gph`  | menu | That line's running trains; each drills into a detail page.   |
-| `train/<run>.txt`   | text | One train: line/color, position+heading, next stop + predicted time. |
-| `about.txt`         | text | What this is and the canvas/projection parameters.            |
+| Path                  | Type | Content                                                       |
+| --------------------- | ---- | ------------------------------------------------------------- |
+| `index.gph`           | menu | Root: links to both maps, landmarks, AI panels + one entry per line (live counts). |
+| `map.txt`             | text | **Braille geographic plot of every live train** + legend + feed time. |
+| `map.ansi`            | text | Braille map, ANSI-coloured: Chicago skeleton (coast/river/expressways) + mnemonic place codes under line-coloured trains. |
+| `atlas.txt`           | text | Char-cell geographic atlas (coast `#`, river `~`, roads, inline place codes, heading arrows). |
+| `atlas.ansi`          | text | The atlas, ANSI-coloured (water cyan, codes white, trains by line). |
+| `dispatch.txt` / `sitrep.txt` / `events.txt` | text | AI narration panels (summary + feed stats / station alerts / event advisory), polled from the Worker. |
+| `landmarks/index.gph` | menu | Chicago landmarks; each drills into a detail page.           |
+| `landmark/<X>.txt`    | text | One landmark (keyed by its marker letter): category + position. |
+| `<line>/index.gph`    | menu | That line's running trains; each drills into a detail page.   |
+| `train/<run>.txt`     | text | One train: line/color, position+heading, next stop + predicted time. |
+| `about.txt`           | text | What this is and the canvas/projection parameters.            |
+| `caps.txt` / `robots.txt` | text | GopherII caps policy (verbatim CRLF) + crawler policy (fences the ephemeral `/train/` pages). |
 
 Line keys: `red blue brn g org p pink y`. Menus are geomyidae `.gph` files; the
 `server`/`port` fields are left as placeholder tokens that geomyidae fills in,
@@ -72,14 +85,16 @@ cargo run -- --interval 30 --out ./public
 Then point geomyidae at the published snapshot and browse:
 
 ```sh
-geomyidae -b ./public/current -p 7070
+geomyidae -b ./public/current -p 7070 -h localhost
 curl gopher://localhost:7070/             # root menu
 curl gopher://localhost:7070/0/map.txt    # the braille map (0/ = text item)
+curl gopher://localhost:7070/0/map.ansi   # colour map with the Chicago overlay
 lynx gopher://localhost:7070
 ```
 
-The map is best viewed in a terminal with a font that has Braille glyphs
-(U+2800–U+28FF) — most monospaced fonts do.
+The maps are best viewed in a terminal with a font that has Braille glyphs
+(U+2800–U+28FF) — most monospaced fonts do — and the `.ansi` variants in a
+256-colour terminal.
 
 ### CLI flags
 
@@ -96,6 +111,12 @@ The map is best viewed in a terminal with a font that has Braille glyphs
 | `CTA_TRAIN_API_KEY` | _unset_                        | Train Tracker API key. **Unset ⇒ offline fixture mode.** |
 | `CTA_ROUTES`        | `red,blue,brn,g,org,p,pink,y`  | Comma-separated route keys to fetch.               |
 | `GOPHER_OUT`        | `public`                       | Output dir (same as `--out`).                      |
+| `CTA_AI_BASE`       | the shared cta-track-grid Worker | Base URL for the AI narration panels (dispatch/sitrep/events). |
+| `CTA_HOME_MAPID` / `CTA_HOME_NAME` | `41070` / `Kedzie` | Home station for the SITREP alerts panel.          |
+
+The AI panels are read from a **Cloudflare Worker** (the same one `cta-tui` uses);
+nothing here calls an LLM directly. A detached background poller refreshes them on
+a slow cadence, so the live-train fast path never blocks on narration.
 
 The fetcher **always produces a tree**: with no key (or if a live fetch fails)
 it renders the recorded snapshot in `fixtures/positions.json`, so the whole
@@ -142,7 +163,7 @@ overkill at city scale). All the knobs live at the top of that file, labelled
 pub const LAT_MIN: f64 = 41.65;       // south edge
 pub const LAT_MAX: f64 = 42.08;     // north edge (un-clips the coast tip near Evanston)
 pub const LON_MIN: f64 = -87.90;      // west edge
-pub const LON_MAX: f64 = -87.54;     // east edge (just past the shore; trims open lake)
+pub const LON_MAX: f64 = -87.54;     // east edge (past the shore into open lake — room for the "LAKE MICHIGAN" label)
 pub const W: usize          = 48;     // column budget (braille cells); rows derived (~36)
 pub const CELL_ASPECT: f64  = 2.0;    // terminal cell height/width
 pub const LAT_KM_PER_DEG: f64 = 111.32;
@@ -179,11 +200,14 @@ bbox to cover the regional rail footprint). Look for `TODO(felipe)` in that file
 ```
 src/
   braille.rs   2×4 dot canvas; set(px,py); render() → String. Pure, unit-tested.
-  project.rs   km-based bbox projection. Pure, unit-tested (corners→corners).
-  render.rs    pure render core: text pages + daemon-agnostic menu model (Entry).
+  project.rs   km-based bbox projection (the one projection). Pure, unit-tested.
+  render.rs    pure render core: braille map + text pages + daemon-agnostic menus.
+  atlas.rs     char-cell geo atlas (coast/river/roads/place codes); geo data model.
+  narration.rs AI panels — background poller reading the Worker (dispatch/sitrep/events).
   transit.rs   TransitSource trait, Train, CtaSource (live+fixture), MetraSource stub.
   fetch.rs     fetch loop, atomic publish (current symlink + GC), geomyidae .gph.
   main.rs      env/flag config + wiring.
+chicago_geo.json  geo overlay: shoreline, river, expressways, landmarks, areas (compiled in).
 fixtures/
   positions.json   recorded ttpositions snapshot (offline demo + tests).
 ```
@@ -215,9 +239,11 @@ pre-commit install               # needs `pre-commit` (brew install pre-commit)
 
 Covered: braille bit-mapping (spec vectors), projection (bbox corners land at
 canvas corners, known lat/lon → expected cell, out-of-bbox dropped), render
-(known feed → expected listing/links, map braille+footer, train detail
-valid/unknown), and the fetcher (atomic publish + `current` symlink, GC, the
-geomyidae `.gph` serialization, full-tree build).
+(known feed → expected listing/links, map braille+footer, ANSI overlay + place
+codes, train detail valid/unknown), the atlas (geo parse, river/coast/road glyphs,
+inline codes + decode legend, lake label, landmark menu/detail), narration
+(panel formatting + placeholders), and the fetcher (atomic publish + `current`
+symlink, GC, the geomyidae `.gph` serialization, full-tree build).
 
 ## Cross-compiling for PowerPC (PowerMac G5)
 
@@ -272,12 +298,25 @@ the bundled fixture (no network/TLS needed at all). Verified under emulation:
 the big-endian binary fetches live CTA data over HTTPS (OpenSSL) and writes the
 full braille-map + drill-down tree.
 
-## Container / Kubernetes
+## Deployment
 
-The fetcher–daemon split maps cleanly onto a single pod with two containers
-sharing an `emptyDir`: the **fetcher** writes the tree to `/srv` and flips
-`/srv/current`; **geomyidae** serves `/srv/current` read-only. No PVC — the tree
-is regenerated every interval, so ephemeral storage is the right fit.
+Production (`gopher://gopher.debene.dev:70/`) runs **Docker Compose** on a VPS:
+the fetcher + geomyidae share `./public` (see [`docker-compose.yml`](docker-compose.yml)).
+CI/CD is fully automated — every push to `master` runs the tests, builds a
+multi-arch image, and publishes `ghcr.io/felipedbene/gopher-cta:latest`; a
+**Watchtower** container on the VPS (compose `deploy` profile) then pulls it and
+recreates the fetcher, so a merge reaches production with no manual step. The full
+runbook — one-time setup, verification, troubleshooting — is in
+[`docs/DEPLOY.md`](docs/DEPLOY.md).
+
+### Container / Kubernetes (alternative, not the live path)
+
+The same image also drops onto Kubernetes: the fetcher–daemon split maps cleanly
+onto a single pod with two containers sharing an `emptyDir` — the **fetcher**
+writes the tree to `/srv` and flips `/srv/current`; **geomyidae** serves
+`/srv/current` read-only. No PVC — the tree is regenerated every interval, so
+ephemeral storage is the right fit. `deploy/gopher-cta.yaml` is provided but the
+production deployment above uses Compose, not k8s.
 
 ```
 Dockerfile                    fetcher image (Rust build → debian-slim)
