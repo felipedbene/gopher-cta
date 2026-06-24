@@ -13,6 +13,7 @@
 //!   /<line>             per-line menu (a directory)
 //!   /train/<run>.txt    per-train detail (text)
 
+use crate::atlas::{bresenham, GeoData};
 use crate::braille::Canvas;
 use crate::project::{self, Geometry};
 use crate::transit::{Positions, Train};
@@ -268,22 +269,207 @@ pub fn train_page(pos: &Positions, run_id: &str) -> String {
     out
 }
 
+// ANSI 256-colour codes for the braille map's geographic skeleton, drawn only in
+// the `.ansi` variant. Trains keep their CTA line colour and win any shared cell,
+// so the skeleton recedes behind live trains. Coast matches the atlas's water.
+const GEO_COAST_COLOR: u8 = 44; // cyan: Lake Michigan shoreline
+                                // The river is water too, so it shares the coast's cyan rather than a blue of its
+                                // own — a distinct blue read as Blue Line trains, especially in the dense Loop.
+const GEO_RIVER_COLOR: u8 = GEO_COAST_COLOR;
+const GEO_ROAD_COLOR: u8 = 240; // dark grey: expressways
+const GEO_LABEL_COLOR: u8 = 231; // bright white: place-name labels, so they read over the plot
+
+/// Inline place-name labels for the ANSI map: a short name anchored at a
+/// `(lat, lon)`, written left-to-right starting at that cell. Kept short and few
+/// — a couple of orienting anchors, not a gazetteer (point markers alone would be
+/// meaningless dots; names earn their cells). Coords mirror `chicago_geo.json`.
+const MAP_LABELS: &[(&str, f64, f64)] = &[
+    ("L", 41.8807, -87.6298),         // the Loop (downtown convergence)
+    ("UC", 41.8807, -87.6742),        // United Center (short: shares the Loop's row)
+    ("WRIGLEY", 41.9484, -87.6553),   // north anchor (Wrigley Field)
+    ("EVANSTON", 42.0450, -87.6840),  // far north (Purple Line)
+    ("SKOKIE", 42.0380, -87.7510),    // northwest (Yellow Line "Skokie Swift")
+    ("OAK PARK", 41.8870, -87.7890),  // west (Green/Blue, Frank Lloyd Wright)
+    ("MIDWAY", 41.7868, -87.7522),    // southwest anchor (Orange Line terminus)
+    ("HYDE PARK", 41.7920, -87.6000), // south anchor (U of Chicago)
+];
+
+/// The body of water, written down the open lake east of the coastline (same
+/// placement the atlas uses: the far-east column, vertically centred).
+const LAKE_LABEL: &str = "LAKE MICHIGAN";
+
+/// Pre-rasterized Chicago skeleton for the braille map's ANSI variant: shoreline,
+/// river, and expressways drawn ONCE into a braille canvas (with a matching
+/// per-cell base colour). [`map_page_ansi`] clones this and paints live trains on
+/// top, so geo never re-rasterizes — mirroring the atlas's build-once invariant.
+/// The same [`project::project`] the trains use places every anchor, so the
+/// skeleton is pixel-locked to the dots; there is no second projection.
+pub struct MapBase {
+    canvas: Canvas,
+    colors: Vec<u8>,
+    /// Sparse text layer (one slot per cell): place names that render *over* the
+    /// plot. Static, so it's built once and cloned-by-reference per publish.
+    labels: Vec<Option<(char, u8)>>,
+}
+
+impl MapBase {
+    /// Rasterize the static geo skeleton into a braille base. Call once at
+    /// startup; clone-and-paint per publish via [`map_page_ansi`].
+    pub fn build(geo: &Geometry) -> MapBase {
+        let data = GeoData::load();
+        let mut canvas = Canvas::new(geo.wc, geo.hc);
+        let mut colors = vec![0u8; geo.wc * geo.hc];
+
+        // Roads first, then water on top: where a road meets the river or coast,
+        // the more iconic water colour wins the shared cell. (Dots just OR, so
+        // draw order only decides the per-cell tint.)
+        for road in &data.expressways {
+            draw_polyline(&mut canvas, &mut colors, geo, &road.points, GEO_ROAD_COLOR);
+        }
+        draw_polyline(
+            &mut canvas,
+            &mut colors,
+            geo,
+            &data.shoreline.points,
+            GEO_COAST_COLOR,
+        );
+        for river in &data.rivers {
+            draw_polyline(
+                &mut canvas,
+                &mut colors,
+                geo,
+                &river.points,
+                GEO_RIVER_COLOR,
+            );
+        }
+
+        // Text layer: "LAKE MICHIGAN" down the open-water column, plus a couple of
+        // orienting place names anchored at their coordinates.
+        let mut labels = vec![None; geo.wc * geo.hc];
+        place_lake_label(&mut labels, geo);
+        for (name, lat, lon) in MAP_LABELS {
+            if let Some((px, py)) = project::project(*lat, *lon, geo) {
+                place_label(
+                    &mut labels,
+                    geo,
+                    (px / 2) as i32,
+                    (py / 4) as i32,
+                    name,
+                    GEO_LABEL_COLOR,
+                );
+            }
+        }
+
+        MapBase {
+            canvas,
+            colors,
+            labels,
+        }
+    }
+}
+
+/// Write `text` left-to-right into the label layer starting at cell `(col, row)`,
+/// clipping anything past the frame. Spaces are written too (they blank the cell),
+/// keeping multi-word names legible over a busy plot.
+fn place_label(
+    labels: &mut [Option<(char, u8)>],
+    geo: &Geometry,
+    col: i32,
+    row: i32,
+    text: &str,
+    color: u8,
+) {
+    if row < 0 || row as usize >= geo.hc {
+        return;
+    }
+    for (i, ch) in text.chars().enumerate() {
+        let c = col + i as i32;
+        if c < 0 || c as usize >= geo.wc {
+            continue;
+        }
+        labels[row as usize * geo.wc + c as usize] = Some((ch, color));
+    }
+}
+
+/// Write "LAKE MICHIGAN" vertically down the far-east (open-water) column,
+/// vertically centred — the same placement the atlas uses, so both surfaces label
+/// the lake the same way.
+fn place_lake_label(labels: &mut [Option<(char, u8)>], geo: &Geometry) {
+    let col = geo.wc as i32 - 2;
+    let start = (geo.hc as i32 - LAKE_LABEL.len() as i32) / 2;
+    for (i, ch) in LAKE_LABEL.chars().enumerate() {
+        if ch != ' ' {
+            place_label(
+                labels,
+                geo,
+                col,
+                start + i as i32,
+                &ch.to_string(),
+                GEO_COAST_COLOR,
+            );
+        }
+    }
+}
+
+/// Rasterize a lat/lon polyline into the braille canvas: project each anchor to a
+/// braille pixel (the SAME projection the trains use) and Bresenham between
+/// consecutive in-bbox anchors, setting the dot and tinting its cell `color`. A
+/// segment with an off-bbox endpoint is skipped, so the line clips at the frame
+/// instead of streaking — exactly like the atlas's shoreline.
+fn draw_polyline(
+    canvas: &mut Canvas,
+    colors: &mut [u8],
+    geo: &Geometry,
+    pts: &[[f64; 2]],
+    color: u8,
+) {
+    for seg in pts.windows(2) {
+        if let (Some((x0, y0)), Some((x1, y1))) = (
+            project::project(seg[0][0], seg[0][1], geo),
+            project::project(seg[1][0], seg[1][1], geo),
+        ) {
+            bresenham(x0 as i32, y0 as i32, x1 as i32, y1 as i32, |px, py| {
+                if px < 0 || py < 0 {
+                    return;
+                }
+                let (px, py) = (px as usize, py as usize);
+                canvas.set(px, py);
+                let cell = (py / 4) * geo.wc + (px / 2);
+                if cell < colors.len() {
+                    colors[cell] = color;
+                }
+            });
+        }
+    }
+}
+
 /// The headline view: a braille geographic plot of every live train (plain text).
 /// Trains that fail to plot (null coords / outside bbox) are logged at debug
 /// level rather than silently dropped.
 pub fn map_page(pos: &Positions, geo: &Geometry, source_name: &str) -> String {
-    map_page_inner(pos, geo, source_name, false)
+    map_page_inner(None, pos, geo, source_name, false)
 }
 
-/// As [`map_page`], but ANSI-coloured: each plotted cell takes the colour of the
-/// (last) train in it. For the `.ansi` selector; strict clients use [`map_page`].
-pub fn map_page_ansi(pos: &Positions, geo: &Geometry, source_name: &str) -> String {
-    map_page_inner(pos, geo, source_name, true)
+/// As [`map_page`], but ANSI-coloured and laid over the Chicago skeleton from
+/// `base` (coast/river/expressways): each train cell takes its CTA line colour and
+/// wins over the geo tint. For the `.ansi` selector; strict clients use
+/// [`map_page`], which carries no overlay.
+pub fn map_page_ansi(base: &MapBase, pos: &Positions, geo: &Geometry, source_name: &str) -> String {
+    map_page_inner(Some(base), pos, geo, source_name, true)
 }
 
-fn map_page_inner(pos: &Positions, geo: &Geometry, source_name: &str, ansi: bool) -> String {
-    let mut canvas = Canvas::new(geo.wc, geo.hc);
-    let mut colors = vec![0u8; geo.wc * geo.hc];
+fn map_page_inner(
+    base: Option<&MapBase>,
+    pos: &Positions,
+    geo: &Geometry,
+    source_name: &str,
+    ansi: bool,
+) -> String {
+    // ANSI starts from the cloned geo skeleton; plain text starts blank.
+    let (mut canvas, mut colors) = match base {
+        Some(b) => (b.canvas.clone(), b.colors.clone()),
+        None => (Canvas::new(geo.wc, geo.hc), vec![0u8; geo.wc * geo.hc]),
+    };
     let mut plotted = 0usize;
     let mut dropped: Vec<&str> = Vec::new();
     for t in &pos.trains {
@@ -323,7 +509,9 @@ fn map_page_inner(pos: &Positions, geo: &Geometry, source_name: &str, ansi: bool
     out.push_str(&"-".repeat(geo.wc.min(78)));
     out.push('\n');
     out.push_str(&if ansi {
-        canvas.render_colored(&colors)
+        // Labels come from the (static) base; plain text carries no overlay.
+        let labels = base.map(|b| b.labels.as_slice()).unwrap_or(&[]);
+        canvas.render_colored(&colors, labels)
     } else {
         canvas.render()
     });
@@ -339,6 +527,12 @@ fn map_page_inner(pos: &Positions, geo: &Geometry, source_name: &str, ansi: bool
         project::LON_MIN,
         project::LON_MAX,
     ));
+    // The geo skeleton is ANSI-only; only name it when it's actually drawn.
+    if base.is_some() {
+        out.push_str(
+            "overlay: water -- lake + river (cyan)  expressways (grey)  place names (white)\n",
+        );
+    }
     out.push_str("\nlegend (trains per line):\n");
     for &key in LINE_ORDER {
         let count = pos.trains.iter().filter(|t| t.line == key).count();
@@ -462,14 +656,72 @@ mod tests {
     #[test]
     fn map_ansi_colours_braille_plain_does_not() {
         let geo = project::geometry();
+        let base = MapBase::build(&geo);
         let plain = map_page(&fixture_positions(), &geo, "CTA 'L'");
-        let ansi = map_page_ansi(&fixture_positions(), &geo, "CTA 'L'");
+        let ansi = map_page_ansi(&base, &fixture_positions(), &geo, "CTA 'L'");
         assert!(!plain.contains('\x1b'), "plain map must be ESC-free");
         assert!(ansi.contains("\x1b[38;5;"), "ansi map must carry SGR codes");
         // still a braille plot underneath
         assert!(ansi
             .chars()
             .any(|c| (0x2800..=0x28FF).contains(&(c as u32))));
+    }
+
+    #[test]
+    fn map_ansi_overlays_geo_skeleton_plain_does_not() {
+        let geo = project::geometry();
+        let base = MapBase::build(&geo);
+        // Even with NO trains, the ANSI map carries the static geo skeleton:
+        // shoreline (cyan) is always drawn, plus the overlay legend note.
+        let ansi = map_page_ansi(&base, &Positions::default(), &geo, "CTA 'L'");
+        assert!(
+            ansi.contains("\x1b[38;5;44m"),
+            "water (cyan: coast + river) missing from ANSI map overlay"
+        );
+        // Place-name labels render in white over the plot, even with no trains.
+        assert!(
+            ansi.contains("\x1b[38;5;231m"),
+            "place-name labels (white) missing from ANSI map overlay"
+        );
+        assert!(ansi.contains("overlay: water"));
+        // The plain map stays a pure-train view: no overlay, no geo dots.
+        let plain = map_page(&Positions::default(), &geo, "CTA 'L'");
+        assert!(
+            !plain.contains("overlay:"),
+            "plain map must not name an overlay"
+        );
+        let plain_grid: String = plain
+            .lines()
+            .skip_while(|l| !l.starts_with("---"))
+            .skip(1)
+            .take_while(|l| !l.starts_with("---"))
+            .collect();
+        assert!(
+            plain_grid.chars().all(|c| c == '\u{2800}'),
+            "plain map grid must be blank braille with no trains/geo"
+        );
+    }
+
+    #[test]
+    fn map_base_rasterizes_geo_into_braille() {
+        let geo = project::geometry();
+        let base = MapBase::build(&geo);
+        // The base canvas has non-blank cells (the shoreline/river/expressways).
+        let painted = base
+            .canvas
+            .render()
+            .chars()
+            .filter(|&c| (0x2801..=0x28FF).contains(&(c as u32)))
+            .count();
+        assert!(painted > 0, "geo skeleton left no dots on the base canvas");
+        // ...and matching coloured cells in the base palette.
+        assert!(base.colors.contains(&GEO_COAST_COLOR)); // coast + river share this cyan
+        assert!(base.colors.contains(&GEO_ROAD_COLOR));
+        // The static label layer carries the place names (lake + anchors).
+        assert!(
+            base.labels.iter().any(|l| l.is_some()),
+            "no place-name labels were placed on the base"
+        );
     }
 
     #[test]

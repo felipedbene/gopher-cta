@@ -47,6 +47,77 @@
         [41.755, -87.627],
         [41.722, -87.624]
       ]
+    },
+    {
+      "name": "I-290 Eisenhower",
+      "_order": "downtown -> due west",
+      "points": [
+        [41.8755, -87.6330],
+        [41.8740, -87.6700],
+        [41.8730, -87.7050],
+        [41.8720, -87.7450],
+        [41.8710, -87.7850]
+      ]
+    },
+    {
+      "name": "I-55 Stevenson",
+      "_order": "near-south downtown -> southwest",
+      "points": [
+        [41.8530, -87.6300],
+        [41.8430, -87.6600],
+        [41.8320, -87.6950],
+        [41.8200, -87.7350],
+        [41.8080, -87.7750]
+      ]
+    },
+    {
+      "name": "US-41 Lake Shore Drive",
+      "_order": "north -> south, hugging the lakefront just inland of the coast",
+      "points": [
+        [41.9700, -87.6480],
+        [41.9400, -87.6380],
+        [41.9100, -87.6280],
+        [41.8900, -87.6160],
+        [41.8650, -87.6090],
+        [41.8400, -87.6050],
+        [41.8150, -87.6020]
+      ]
+    }
+  ],
+
+  "rivers": [
+    {
+      "name": "Chicago River — Main Stem",
+      "_order": "lake mouth -> west to Wolf Point (the fork)",
+      "points": [
+        [41.8890, -87.6118],
+        [41.8888, -87.6240],
+        [41.8886, -87.6320],
+        [41.8885, -87.6385]
+      ]
+    },
+    {
+      "name": "Chicago River — North Branch",
+      "_order": "Wolf Point -> northwest",
+      "points": [
+        [41.8885, -87.6385],
+        [41.9020, -87.6510],
+        [41.9150, -87.6600],
+        [41.9320, -87.6690],
+        [41.9520, -87.6790]
+      ]
+    },
+    {
+      "name": "Chicago River — South Branch",
+      "_order": "Wolf Point -> southwest (toward the Sanitary & Ship Canal)",
+      "points": [
+        [41.8885, -87.6385],
+        [41.8770, -87.6440],
+        [41.8630, -87.6500],
+        [41.8490, -87.6580],
+        [41.8350, -87.6660],
+        [41.8250, -87.6710]
+      ]
     }
   ],
 

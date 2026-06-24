@@ -21,7 +21,8 @@ geomyidae prepends the gopher type, so browse `gopher://host:7070/0/map.txt`
 | File | What |
 |------|------|
 | `index.gph` | root menu (type-1) |
-| `map.txt` | braille train map |
+| `map.txt` | braille train map (plain: pure train dots, no overlay) |
+| `map.ansi` | braille map, ANSI; overlays the Chicago skeleton (coast+river=cyan, expressways=grey) + place-name labels (white) under the line-coloured trains |
 | `atlas.txt` | char-cell geo atlas: shoreline + landmarks + trains |
 | `dispatch.txt` / `sitrep.txt` / `events.txt` | AI panels (see Narration) |
 | `about.txt` | about |
@@ -157,3 +158,13 @@ done: train heading arrows (`^ > v <`), the labelled lakefront (LON_MAX widened
 east, "LAKE MICHIGAN" in the water), and ANSI colour variants `map.ansi` /
 `atlas.ansi` (trains by line). Remaining: `/landmarks` type-1 menu + per-landmark
 detail pages. Live image is a local build; push to ghcr is still felipe's step.
+
+Branch `feat/braille-map-geo-overlay`: the braille `map.ansi` now carries the
+Chicago skeleton too (it was bare train dots). `render::MapBase` rasterizes
+coast+river+expressways once (reusing `project::project` + `atlas::bresenham`)
+and a sparse text layer of place names (`L`, UC, WRIGLEY, EVANSTON, SKOKIE, OAK
+PARK, MIDWAY, HYDE PARK + "LAKE MICHIGAN"), cloned per publish. River shares the
+coast's cyan (a distinct blue read as Blue Line trains). Place names live in
+`MAP_LABELS` in `render.rs` — trivial to edit. ANSI-only; plain `map.txt`
+unchanged. New `chicago_geo.json` data: `rivers[]` + 3 more expressways (which the
+atlas now also draws). O'Hare can't be labelled — it's just past `LON_MIN`.
