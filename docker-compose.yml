@@ -64,9 +64,13 @@ services:
     command: --label-enable --cleanup --include-restarting --interval 300
     environment:
       - WATCHTOWER_NO_STARTUP_MESSAGE=true
+      # The host daemon rejects the client's default API version (1.25); pin one it
+      # accepts. 1.41 (Docker 20.10) is within both the bundled client's range and
+      # any modern daemon's, so negotiation can't strand on a too-old version.
+      - DOCKER_API_VERSION=1.41
     volumes:
+      # Only the daemon socket. (No ~/.docker/config.json mount: the GHCR package
+      # is public so no pull auth is needed, and mounting a non-existent file makes
+      # Docker create a *directory* there, which Watchtower then fails to parse.)
       - /var/run/docker.sock:/var/run/docker.sock
-      # GHCR pull auth. Needed only if the package is PRIVATE; harmless to omit if
-      # it's public. Create it once on the VPS with `docker login ghcr.io`.
-      - ${HOME}/.docker/config.json:/config.json:ro
     restart: unless-stopped
