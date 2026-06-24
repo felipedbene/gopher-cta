@@ -473,7 +473,8 @@ mod tests {
 
         // Per-line: each train is a type-0 link to its detail page.
         let red = render_menu_index(&render::line_menu(&pos, "red"));
-        assert!(red.contains("[0|Run 801   -> Howard|/train/801.txt|server|port]\n"));
+        assert!(red.contains("[0|Run 801   -> Howard"));
+        assert!(red.contains("|/train/801.txt|server|port]\n"));
         assert!(red.contains("Red Line -- live trains\n")); // info header
     }
 
@@ -505,7 +506,8 @@ mod tests {
 
         // per-line submenu exists and drills into a train
         let red = fs::read_to_string(snap.join("red/index.gph")).unwrap();
-        assert!(red.contains("[0|Run 801   -> Howard|/train/801.txt|server|port]"));
+        assert!(red.contains("[0|Run 801   -> Howard"));
+        assert!(red.contains("|/train/801.txt|server|port]"));
 
         // the linked train detail page actually exists with matching content
         let train = fs::read_to_string(snap.join("train/801.txt")).unwrap();

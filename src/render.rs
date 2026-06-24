@@ -187,19 +187,23 @@ pub fn line_menu(pos: &Positions, line: &str) -> Vec<Entry> {
     )));
     e.push(info(""));
     for t in trains {
-        let mut flags = Vec::new();
-        if t.approaching {
-            flags.push("approaching");
-        }
-        if t.delayed {
-            flags.push("DELAYED");
-        }
-        let flag_str = if flags.is_empty() {
-            String::new()
-        } else {
-            format!("  [{}]", flags.join(", "))
+        // Fold the next stop into the status so a flag is meaningful: "approaching
+        // X" reads, where a bare "[approaching]" left you guessing. Falls back to a
+        // plain flag when the feed reports no next station.
+        let next = t.next_station.trim();
+        let status = match (t.delayed, t.approaching, next.is_empty()) {
+            (true, _, false) => format!("DELAYED, next {next}"),
+            (true, _, true) => "DELAYED".to_string(),
+            (false, true, false) => format!("approaching {next}"),
+            (false, true, true) => "approaching".to_string(),
+            (false, false, false) => format!("next {next}"),
+            (false, false, true) => String::new(),
         };
-        let display = format!("Run {:<5} -> {}{}", t.run, t.dest, flag_str);
+        let display = if status.is_empty() {
+            format!("Run {:<5} -> {}", t.run, t.dest)
+        } else {
+            format!("Run {:<5} -> {:<14} {status}", t.run, t.dest)
+        };
         // The target is a text page, so the link is type 0 (text), not type 1
         // (RFC 1436): a client fetches it as a document, not a directory.
         e.push(link(ItemKind::Text, display, train_selector(&t.run)));
@@ -641,7 +645,15 @@ mod tests {
             })
             .collect();
         assert_eq!(links.len(), 5);
-        assert!(links.contains(&("Run 801   -> Howard", "/train/801.txt")));
+        // Run 801 is en route to Howard; its next stop (Loyola) is folded in.
+        assert!(links.iter().any(|(d, s)| *s == "/train/801.txt"
+            && d.starts_with("Run 801")
+            && d.contains("Howard")
+            && d.contains("next Loyola")));
+        // Run 812 is approaching — the row now names the station, not a bare flag.
+        assert!(links
+            .iter()
+            .any(|(d, s)| *s == "/train/812.txt" && d.contains("approaching ")));
         for run in ["801", "812", "823", "834", "845"] {
             assert!(
                 links
