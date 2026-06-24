@@ -277,22 +277,7 @@ const GEO_COAST_COLOR: u8 = 44; // cyan: Lake Michigan shoreline
                                 // own — a distinct blue read as Blue Line trains, especially in the dense Loop.
 const GEO_RIVER_COLOR: u8 = GEO_COAST_COLOR;
 const GEO_ROAD_COLOR: u8 = 240; // dark grey: expressways
-const GEO_LABEL_COLOR: u8 = 231; // bright white: place-name labels, so they read over the plot
-
-/// Inline place-name labels for the ANSI map: a short name anchored at a
-/// `(lat, lon)`, written left-to-right starting at that cell. Kept short and few
-/// — a couple of orienting anchors, not a gazetteer (point markers alone would be
-/// meaningless dots; names earn their cells). Coords mirror `chicago_geo.json`.
-const MAP_LABELS: &[(&str, f64, f64)] = &[
-    ("L", 41.8807, -87.6298),         // the Loop (downtown convergence)
-    ("UC", 41.8807, -87.6742),        // United Center (short: shares the Loop's row)
-    ("WRIGLEY", 41.9484, -87.6553),   // north anchor (Wrigley Field)
-    ("EVANSTON", 42.0450, -87.6840),  // far north (Purple Line)
-    ("SKOKIE", 42.0380, -87.7510),    // northwest (Yellow Line "Skokie Swift")
-    ("OAK PARK", 41.8870, -87.7890),  // west (Green/Blue, Frank Lloyd Wright)
-    ("MIDWAY", 41.7868, -87.7522),    // southwest anchor (Orange Line terminus)
-    ("HYDE PARK", 41.7920, -87.6000), // south anchor (U of Chicago)
-];
+const GEO_LABEL_COLOR: u8 = 231; // bright white: place codes, so they read over the plot
 
 /// The body of water, written down the open lake east of the coastline (same
 /// placement the atlas uses: the far-east column, vertically centred).
@@ -307,9 +292,13 @@ const LAKE_LABEL: &str = "LAKE MICHIGAN";
 pub struct MapBase {
     canvas: Canvas,
     colors: Vec<u8>,
-    /// Sparse text layer (one slot per cell): place names that render *over* the
+    /// Sparse text layer (one slot per cell): place codes that render *over* the
     /// plot. Static, so it's built once and cloned-by-reference per publish.
     labels: Vec<Option<(char, u8)>>,
+    /// `(code, name)` for every place code that actually landed, in placement
+    /// order — the footer renders this as the decode legend (shared scheme with
+    /// the atlas).
+    legend: Vec<(String, String)>,
 }
 
 impl MapBase {
@@ -343,20 +332,34 @@ impl MapBase {
             );
         }
 
-        // Text layer: "LAKE MICHIGAN" down the open-water column, plus a couple of
-        // orienting place names anchored at their coordinates.
+        // Text layer: "LAKE MICHIGAN" down the open-water column (placed first so
+        // it owns that column), then mnemonic codes for the same places the atlas
+        // names — areas first, then landmarks — collision-avoided so the dense
+        // downtown thins gracefully. A footer legend decodes them.
         let mut labels = vec![None; geo.wc * geo.hc];
         place_lake_label(&mut labels, geo);
-        for (name, lat, lon) in MAP_LABELS {
-            if let Some((px, py)) = project::project(*lat, *lon, geo) {
-                place_label(
+        let mut legend: Vec<(String, String)> = Vec::new();
+        let placeable = data
+            .areas
+            .iter()
+            .map(|a| (&a.code, &a.name, a.lat, a.lon))
+            .chain(
+                data.landmarks
+                    .iter()
+                    .map(|m| (&m.code, &m.name, m.lat, m.lon)),
+            );
+        for (code, name, lat, lon) in placeable {
+            if let Some((px, py)) = project::project(lat, lon, geo) {
+                if place_label(
                     &mut labels,
                     geo,
                     (px / 2) as i32,
                     (py / 4) as i32,
-                    name,
+                    code,
                     GEO_LABEL_COLOR,
-                );
+                ) {
+                    legend.push((code.clone(), name.clone()));
+                }
             }
         }
 
@@ -364,13 +367,16 @@ impl MapBase {
             canvas,
             colors,
             labels,
+            legend,
         }
     }
 }
 
 /// Write `text` left-to-right into the label layer starting at cell `(col, row)`,
-/// clipping anything past the frame. Spaces are written too (they blank the cell),
-/// keeping multi-word names legible over a busy plot.
+/// clipping anything past the frame — but ONLY if it doesn't overlap a label
+/// already placed, so codes thin gracefully in dense areas (the loser drops whole)
+/// instead of garbling. Off-frame characters clip and don't block. Returns whether
+/// the label landed.
 fn place_label(
     labels: &mut [Option<(char, u8)>],
     geo: &Geometry,
@@ -378,17 +384,25 @@ fn place_label(
     row: i32,
     text: &str,
     color: u8,
-) {
+) -> bool {
     if row < 0 || row as usize >= geo.hc {
-        return;
+        return false;
+    }
+    let r = row as usize;
+    for i in 0..text.chars().count() as i32 {
+        let c = col + i;
+        if (0..geo.wc as i32).contains(&c) && labels[r * geo.wc + c as usize].is_some() {
+            return false;
+        }
     }
     for (i, ch) in text.chars().enumerate() {
         let c = col + i as i32;
         if c < 0 || c as usize >= geo.wc {
             continue;
         }
-        labels[row as usize * geo.wc + c as usize] = Some((ch, color));
+        labels[r * geo.wc + c as usize] = Some((ch, color));
     }
+    true
 }
 
 /// Write "LAKE MICHIGAN" vertically down the far-east (open-water) column,
@@ -398,16 +412,16 @@ fn place_lake_label(labels: &mut [Option<(char, u8)>], geo: &Geometry) {
     let col = geo.wc as i32 - 2;
     let start = (geo.hc as i32 - LAKE_LABEL.len() as i32) / 2;
     for (i, ch) in LAKE_LABEL.chars().enumerate() {
-        if ch != ' ' {
-            place_label(
-                labels,
-                geo,
-                col,
-                start + i as i32,
-                &ch.to_string(),
-                GEO_COAST_COLOR,
-            );
-        }
+        // Place the inter-word space too, so it RESERVES that cell — otherwise a
+        // place code could slot into the lake column between the two words.
+        place_label(
+            labels,
+            geo,
+            col,
+            start + i as i32,
+            &ch.to_string(),
+            GEO_COAST_COLOR,
+        );
     }
 }
 
@@ -528,10 +542,18 @@ fn map_page_inner(
         project::LON_MAX,
     ));
     // The geo skeleton is ANSI-only; only name it when it's actually drawn.
-    if base.is_some() {
+    if let Some(b) = base {
         out.push_str(
-            "overlay: water -- lake + river (cyan)  expressways (grey)  place names (white)\n",
+            "overlay: water -- lake + river (cyan)  expressways (grey)  place codes (white)\n",
         );
+        // Decode legend for the inline place codes actually on the grid (same
+        // mnemonic scheme as the atlas).
+        if !b.legend.is_empty() {
+            out.push_str("\nplaces (code -> name):\n");
+            for (code, name) in &b.legend {
+                out.push_str(&format!("  {code:<4} {name}\n"));
+            }
+        }
     }
     out.push_str("\nlegend (trains per line):\n");
     for &key in LINE_ORDER {
@@ -684,6 +706,9 @@ mod tests {
             "place-name labels (white) missing from ANSI map overlay"
         );
         assert!(ansi.contains("overlay: water"));
+        // Inline place codes + a decode legend (same mnemonic scheme as the atlas).
+        assert!(ansi.contains("places (code -> name)"));
+        assert!(ansi.contains("MDW  Midway"), "Midway code/legend missing");
         // The plain map stays a pure-train view: no overlay, no geo dots.
         let plain = map_page(&Positions::default(), &geo, "CTA 'L'");
         assert!(

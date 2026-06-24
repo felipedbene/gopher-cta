@@ -22,8 +22,8 @@ geomyidae prepends the gopher type, so browse `gopher://host:7070/0/map.txt`
 |------|------|
 | `index.gph` | root menu (type-1) |
 | `map.txt` | braille train map (plain: pure train dots, no overlay) |
-| `map.ansi` | braille map, ANSI; overlays the Chicago skeleton (coast+river=cyan, expressways=grey) + place-name labels (white) under the line-coloured trains |
-| `atlas.txt` | char-cell geo atlas: shoreline + landmarks + trains |
+| `map.ansi` | braille map, ANSI; overlays the Chicago skeleton (coast+river=cyan, expressways=grey) + inline mnemonic place codes (white) + a decode legend, under the line-coloured trains |
+| `atlas.txt` / `atlas.ansi` | char-cell geo atlas, converged with map.ansi: coast `#` + river `~` + expressways + inline mnemonic codes (WIL/NVP/MDW…) + legend + trains |
 | `dispatch.txt` / `sitrep.txt` / `events.txt` | AI panels (see Narration) |
 | `about.txt` | about |
 | `<line>/index.gph` | per-line menu (`red blue brn g org p pink y`) |
@@ -152,19 +152,25 @@ missing, no fetcher is running — that's the usual "0 bytes from gopher" cause.
 
 ## Status (update as it changes)
 
-geo atlas (commit 1) + AI narration pages (commit 2) on `master`, **deployed
-locally** (fetcher + geomyidae at `gopher://10.0.10.69:7070`). Commit 3 mostly
-done: train heading arrows (`^ > v <`), the labelled lakefront (LON_MAX widened
-east, "LAKE MICHIGAN" in the water), and ANSI colour variants `map.ansi` /
-`atlas.ansi` (trains by line). Remaining: `/landmarks` type-1 menu + per-landmark
-detail pages. Live image is a local build; push to ghcr is still felipe's step.
+Live in **production** at `gopher://gopher.debene.dev:70/` (RackNerd, Docker
+Compose). Shipped: geo atlas, AI narration pages, `/landmarks` menu + detail
+pages, ANSI colour variants, and the **map/atlas convergence** below.
 
-Branch `feat/braille-map-geo-overlay`: the braille `map.ansi` now carries the
-Chicago skeleton too (it was bare train dots). `render::MapBase` rasterizes
-coast+river+expressways once (reusing `project::project` + `atlas::bresenham`)
-and a sparse text layer of place names (`L`, UC, WRIGLEY, EVANSTON, SKOKIE, OAK
-PARK, MIDWAY, HYDE PARK + "LAKE MICHIGAN"), cloned per publish. River shares the
-coast's cyan (a distinct blue read as Blue Line trains). Place names live in
-`MAP_LABELS` in `render.rs` — trivial to edit. ANSI-only; plain `map.txt`
-unchanged. New `chicago_geo.json` data: `rivers[]` + 3 more expressways (which the
-atlas now also draws). O'Hare can't be labelled — it's just past `LON_MIN`.
+**Convergence (map.ansi ⇄ atlas.ansi).** Both surfaces draw the same Chicago
+skeleton (coast + Chicago River + 4 expressways) and name the same places with a
+**shared mnemonic-code scheme** (`WIL`, `NVP`, `MDW`/`ORD`…, suburbs `EVN`/`SKO`/
+`OPK`/`HYP`) + a `code -> name` decode legend. Water (coast+river) is cyan, codes
+are white, roads grey. Codes are **collision-avoided** (dense downtown thins; the
+footer reports "N of M places named"). Data is one source: `chicago_geo.json`
+landmarks each have `marker` (stable `/landmark/<X>.txt` selector key) + `code`
+(inline display); suburbs live in a new `areas[]`. `render::MapBase` (braille) and
+`atlas::Atlas` both read it, rasterize once, clone per publish. Map overlay is
+ANSI-only; plain `map.txt` stays pure train dots. O'Hare (`ORD`) is just past
+`LON_MIN`, so it never places.
+
+**CI/CD is automated.** Push to `master` → CI (test + multi-arch image →
+`ghcr:latest`) → **Watchtower** on the VPS pulls + recreates the fetcher (compose
+`deploy` profile, 5-min poll). No manual pull. Watchtower needs `DOCKER_API_VERSION`
+pinned (the daemon rejects the bundled client's default 1.25) and NO
+`~/.docker/config.json` mount (package is public; a missing file mounts as a dir
+and breaks it). One-time VPS setup + manual-force fallback: `docs/DEPLOY.md`.

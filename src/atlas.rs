@@ -9,11 +9,11 @@
 //! clients (and to dodge double-width emoji/CJK glyphs that would shear the
 //! grid): shoreline `#`, river `~`, expressways `= | / \` (slope-aware), live
 //! trains as a 4-way heading arrow `^ > v <` (`o` when the feed reports no
-//! heading). Places are named **inline** with short uppercase labels written at
-//! their cell (WILLIS, NAVY PIER, EVANSTON…) — converged with the braille map's
-//! look. Labels are collision-avoided: in a dense knot the loser is dropped whole
-//! rather than overprinting, and the footer reports how many of the in-frame
-//! places were named.
+//! heading). Places are marked **inline** with short mnemonic codes at their cell
+//! (WIL, NVP, EVN…; real airport codes MDW/ORD for the hubs), decoded by a footer
+//! legend — converged with the braille map's look. Codes are collision-avoided: in
+//! a dense knot the loser is dropped whole rather than overprinting, and the footer
+//! reports how many of the in-frame places were named.
 //!
 //! Pixel-locked to the trains: cells come from the SAME [`project::project`] the
 //! braille map uses, collapsed from braille-pixel to char-cell `(px/2, py/4)`.
@@ -50,16 +50,6 @@ const PRIO_LABEL: u8 = 7;
 /// Identifies the body of water for any viewer, written down the open lake east
 /// of the coastline (the bbox is widened east to make room).
 const LAKE_LABEL: &str = "LAKE MICHIGAN";
-
-/// Outlying place anchors that aren't landmark POIs (suburbs / areas), labelled
-/// inline like the braille map so both surfaces name the same places. `(text,
-/// lat, lon)`; coordinates mirror the map's `MAP_LABELS`.
-const AREA_LABELS: &[(&str, f64, f64)] = &[
-    ("EVANSTON", 42.0450, -87.6840),
-    ("SKOKIE", 42.0380, -87.7510),
-    ("OAK PARK", 41.8870, -87.7890),
-    ("HYDE PARK", 41.7920, -87.6000),
-];
 
 // ANSI 256-colour codes for the static layers in the `.ansi` variant (trains
 // take their CTA line colour). `0` = uncoloured.
@@ -110,11 +100,24 @@ pub struct GeoData {
     pub shoreline: Shoreline,
     #[serde(default)]
     pub expressways: Vec<Expressway>,
-    /// Watercourses (the Chicago River + branches). Drawn by the braille map's
-    /// ANSI overlay; the char-cell atlas doesn't render them today.
+    /// Watercourses (the Chicago River + branches), drawn as a water layer on
+    /// both surfaces.
     #[serde(default)]
     pub rivers: Vec<River>,
     pub landmarks: Vec<Landmark>,
+    /// Outlying place anchors that aren't landmark POIs (suburbs / areas). Labelled
+    /// inline with the same mnemonic-code scheme; shared by the atlas and the map.
+    #[serde(default)]
+    pub areas: Vec<Area>,
+}
+
+/// A non-POI place anchor (suburb / district): just a code, a name, and a point.
+#[derive(Debug, Deserialize)]
+pub struct Area {
+    pub code: String,
+    pub name: String,
+    pub lat: f64,
+    pub lon: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -144,9 +147,10 @@ pub struct Landmark {
     /// atlas grid (inline `label` names replaced the letter+legend), but still the
     /// stable key for the `/landmarks` menu and per-landmark detail selectors.
     pub marker: char,
-    /// Short uppercase name written inline on the atlas grid at the landmark's
-    /// cell (e.g. "WILLIS", "NAVY PIER") — the map-style place label.
-    pub label: String,
+    /// Short uppercase mnemonic written inline at the landmark's cell (e.g.
+    /// "WIL", "NVP"; real airport codes MDW/ORD for the hubs). A legend decodes
+    /// it. Shared by the atlas grid and the braille map.
+    pub code: String,
     pub lat: f64,
     pub lon: f64,
     /// Reserved for the per-landmark detail page (a deferred commit); parsed now
@@ -321,10 +325,10 @@ pub struct Atlas {
     geo: GeoData,
     geom: Geometry,
     base: CharGrid,
-    /// Inline place names that actually landed on the grid, and how many were in
-    /// frame to begin with — the rest lost a same-cell collision (reported in the
-    /// footer, since there's no longer a legend listing every marker).
-    named: usize,
+    /// `(code, name)` for every place label that actually landed on the grid, in
+    /// placement order — the footer renders this as the decode legend. Plus how
+    /// many were in frame to begin with; the rest lost a same-cell collision.
+    legend: Vec<(String, String)>,
     named_total: usize,
 }
 
@@ -392,22 +396,27 @@ impl Atlas {
             base.put(col, start + i as i32, ch, PRIO_LABEL, WATER_COLOR);
         }
 
-        // Inline place names (replacing the old letter markers + numbered legend).
-        // Sparse outlying areas first so they always land; then landmarks in data
-        // order (Willis leads the downtown knot, so it wins and the tightly-packed
-        // rest drop via collision rather than overprinting).
-        let mut named = 0usize;
+        // Inline mnemonic codes (replacing the old letter markers). Sparse
+        // outlying areas first so they always land; then landmarks in data order
+        // (Willis leads the downtown knot, so it wins and the tightly-packed rest
+        // drop via collision rather than overprinting). A legend decodes them.
+        let mut legend: Vec<(String, String)> = Vec::new();
         let mut named_total = 0usize;
-        for (text, lat, lon) in AREA_LABELS {
-            if let Some((c, r)) = project_cell(*lat, *lon, &geom) {
+        let placeable = geo
+            .areas
+            .iter()
+            .map(|a| (&a.code, &a.name, a.lat, a.lon))
+            .chain(
+                geo.landmarks
+                    .iter()
+                    .map(|m| (&m.code, &m.name, m.lat, m.lon)),
+            );
+        for (code, name, lat, lon) in placeable {
+            if let Some((c, r)) = project_cell(lat, lon, &geom) {
                 named_total += 1;
-                named += base.place_label(c, r, text, PLACE_LABEL_COLOR) as usize;
-            }
-        }
-        for m in &geo.landmarks {
-            if let Some((c, r)) = project_cell(m.lat, m.lon, &geom) {
-                named_total += 1;
-                named += base.place_label(c, r, &m.label, PLACE_LABEL_COLOR) as usize;
+                if base.place_label(c, r, code, PLACE_LABEL_COLOR) {
+                    legend.push((code.clone(), name.clone()));
+                }
             }
         }
 
@@ -415,7 +424,7 @@ impl Atlas {
             geo,
             geom,
             base,
-            named,
+            legend,
             named_total,
         }
     }
@@ -491,7 +500,7 @@ impl Atlas {
             "{} trains plotted of {} reporting.  {} of {} places named.\n",
             plotted,
             pos.trains.len(),
-            self.named,
+            self.legend.len(),
             self.named_total,
         ));
         out.push_str(&format!(
@@ -502,7 +511,7 @@ impl Atlas {
             project::LON_MAX,
         ));
         // Layer key (mirrors the braille map's overlay note).
-        out.push_str("overlay: water -- lake + river (cyan)  expressways (= | / \\, grey)  place names (white)\n");
+        out.push_str("overlay: water -- lake + river (cyan)  expressways (= | / \\, grey)  place codes (white)\n");
         if !self.geo.expressways.is_empty() {
             let names: Vec<&str> = self
                 .geo
@@ -511,6 +520,14 @@ impl Atlas {
                 .map(|r| r.name.as_str())
                 .collect();
             out.push_str(&format!("expressways:  {}\n", names.join("; ")));
+        }
+
+        // Decode legend for the inline place codes actually on the grid.
+        if !self.legend.is_empty() {
+            out.push_str("\nplaces (code -> name):\n");
+            for (code, name) in &self.legend {
+                out.push_str(&format!("  {code:<4} {name}\n"));
+            }
         }
 
         // Per-line train counts (mirrors the braille map's legend).
@@ -634,6 +651,13 @@ mod tests {
         // The Chicago River (main stem + two branches) is parsed for the map.
         assert_eq!(geo.rivers.len(), 3);
         assert!(geo.rivers.iter().all(|r| r.points.len() >= 2));
+        // Mnemonic codes + the outlying areas (suburbs) parse.
+        assert_eq!(willis.code, "WIL");
+        assert_eq!(geo.areas.len(), 4);
+        assert!(geo
+            .areas
+            .iter()
+            .any(|a| a.code == "EVN" && a.name == "Evanston"));
     }
 
     #[test]
@@ -703,14 +727,14 @@ mod tests {
         assert!(body.contains('~'), "river glyph missing from grid");
         assert!(body.contains("0 trains plotted of 0 reporting"));
         assert!(body.contains("places named"));
-        // Inline place names replace the old letter+legend: an isolated SW anchor
-        // (Midway) and a sparse suburb (Evanston) both land.
-        assert!(body.contains("MIDWAY"), "Midway inline label missing");
-        assert!(body.contains("EVANSTON"), "Evanston area label missing");
-        // Off-bbox O'Hare projects nowhere, so its label is never placed.
-        assert!(!body.contains("OHARE"));
-        // The numbered landmark legend is gone (names are inline now).
-        assert!(!body.contains("LANDMARKS  (marker"));
+        // Inline mnemonic codes: an isolated SW hub (Midway = MDW) and a sparse
+        // suburb (Evanston = EVN) both land, and the decode legend names them.
+        assert!(body.contains("MDW"), "Midway code missing");
+        assert!(body.contains("EVN"), "Evanston code missing");
+        assert!(body.contains("places (code -> name)"));
+        assert!(body.contains("MDW  Midway"));
+        // Off-bbox O'Hare projects nowhere, so its code is never placed.
+        assert!(!body.contains("ORD"));
     }
 
     #[test]
@@ -745,8 +769,9 @@ mod tests {
         );
         assert!(body.contains("18 trains plotted of 18 reporting"));
         assert!(body.contains("offline fixture"));
-        // Inline place names (no more numbered legend) + the layer key.
+        // Inline codes + decode legend + the layer key.
         assert!(body.contains("places named"));
+        assert!(body.contains("places (code -> name)"));
         assert!(body.contains("overlay: water"));
         // Per-line counts mirror the braille map.
         assert!(body.contains("legend (trains per line):"));
