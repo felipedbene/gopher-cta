@@ -97,6 +97,10 @@ pub struct GeoData {
     pub shoreline: Shoreline,
     #[serde(default)]
     pub expressways: Vec<Expressway>,
+    /// Watercourses (the Chicago River + branches). Drawn by the braille map's
+    /// ANSI overlay; the char-cell atlas doesn't render them today.
+    #[serde(default)]
+    pub rivers: Vec<River>,
     pub landmarks: Vec<Landmark>,
 }
 
@@ -104,6 +108,13 @@ pub struct GeoData {
 pub struct Expressway {
     pub name: String,
     /// `[lat, lon]` anchors along the route.
+    pub points: Vec<[f64; 2]>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct River {
+    /// `[lat, lon]` anchors along the watercourse. (The JSON `name` is dropped by
+    /// serde — it's inline documentation; the map draws rivers without a legend.)
     pub points: Vec<[f64; 2]>,
 }
 
@@ -248,8 +259,15 @@ fn project_cell(lat: f64, lon: f64, geo: &Geometry) -> Option<(i32, i32)> {
     project::project(lat, lon, geo).map(|(px, py)| ((px / 2) as i32, (py / 4) as i32))
 }
 
-/// Integer Bresenham. Calls `plot(col, row)` for every cell on the segment.
-fn bresenham(mut x0: i32, mut y0: i32, x1: i32, y1: i32, mut plot: impl FnMut(i32, i32)) {
+/// Integer Bresenham. Calls `plot(x, y)` for every point on the segment. Works in
+/// any integer grid (atlas char cells or, reused by the braille map, raw pixels).
+pub(crate) fn bresenham(
+    mut x0: i32,
+    mut y0: i32,
+    x1: i32,
+    y1: i32,
+    mut plot: impl FnMut(i32, i32),
+) {
     let dx = (x1 - x0).abs();
     let dy = -(y1 - y0).abs();
     let sx = if x0 < x1 { 1 } else { -1 };
@@ -568,9 +586,17 @@ mod tests {
         let markers: std::collections::HashSet<char> =
             geo.landmarks.iter().map(|m| m.marker).collect();
         assert_eq!(markers.len(), 14, "landmark markers must be unique");
-        assert_eq!(geo.expressways.len(), 1);
+        // The Kennedy/Dan Ryan stays first; the main radials were added after it.
+        assert_eq!(geo.expressways.len(), 4);
         assert!(geo.expressways[0].name.contains("90/94"));
         assert_eq!(geo.expressways[0].points.len(), 11);
+        let road_names: Vec<&str> = geo.expressways.iter().map(|r| r.name.as_str()).collect();
+        assert!(road_names.iter().any(|n| n.contains("Eisenhower")));
+        assert!(road_names.iter().any(|n| n.contains("Stevenson")));
+        assert!(road_names.iter().any(|n| n.contains("Lake Shore")));
+        // The Chicago River (main stem + two branches) is parsed for the map.
+        assert_eq!(geo.rivers.len(), 3);
+        assert!(geo.rivers.iter().all(|r| r.points.len() >= 2));
     }
 
     #[test]

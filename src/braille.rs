@@ -31,6 +31,7 @@ fn dot_bit(col: usize, row: usize) -> u8 {
 }
 
 /// A grid of `wc` x `hc` braille cells, i.e. `2*wc` x `4*hc` plottable pixels.
+#[derive(Clone)]
 pub struct Canvas {
     wc: usize,
     hc: usize,
@@ -95,12 +96,26 @@ impl Canvas {
     /// taken from `colors` (same row-major `wc*hc` layout as the grid; `0` =
     /// leave default). For the colour (`.ansi`) map variant; strict clients use
     /// [`render`]. Empty cells stay uncoloured so the canvas keeps fixed width.
-    pub fn render_colored(&self, colors: &[u8]) -> String {
+    ///
+    /// `labels` is a sparse text layer (same `wc*hc` layout; may be empty): a cell
+    /// holding `Some((ch, colour))` renders that glyph instead of its braille dot,
+    /// so place names sit *on top of* the plot. Labels win over everything — they
+    /// are the last layer drawn — so name text never hides behind a train dot.
+    pub fn render_colored(&self, colors: &[u8], labels: &[Option<(char, u8)>]) -> String {
         debug_assert_eq!(colors.len(), self.cells.len());
         let mut out = String::with_capacity(self.hc * (self.wc + 1) * 2);
         for cy in 0..self.hc {
             for cx in 0..self.wc {
                 let idx = cy * self.wc + cx;
+                // A label cell overrides the braille glyph beneath it.
+                if let Some((ch, color)) = labels.get(idx).copied().flatten() {
+                    if color != 0 {
+                        out.push_str(&format!("\x1b[38;5;{color}m{ch}\x1b[0m"));
+                    } else {
+                        out.push(ch);
+                    }
+                    continue;
+                }
                 let bits = self.cells[idx] as u32;
                 let ch = char::from_u32(BRAILLE_BASE + bits).unwrap_or('?');
                 let color = colors.get(idx).copied().unwrap_or(0);

@@ -78,6 +78,9 @@ pub async fn run<S: TransitSource>(cfg: Config, source: S) -> io::Result<()> {
     // Rasterize the static geo overlay once; each publish clones it (never
     // re-rasterizes) and paints live trains on top.
     let atlas = Atlas::build(geo);
+    // Same idea for the braille map's ANSI overlay: the Chicago skeleton
+    // (coast + river + expressways) rasterized once, cloned per publish.
+    let map_base = render::MapBase::build(&geo);
     // AI narrative panels poll the Worker on a slow cadence in the background;
     // each publish reads a snapshot and never blocks on (or depends on) them.
     let narration = narration::spawn();
@@ -95,7 +98,15 @@ pub async fn run<S: TransitSource>(cfg: Config, source: S) -> io::Result<()> {
             Ok(pos) => {
                 // Snapshot the latest narration without blocking the train path.
                 let view = narration.lock().unwrap().clone();
-                match publish(&cfg.out, &pos, &geo, &atlas, &view, source.name()) {
+                match publish(
+                    &cfg.out,
+                    &pos,
+                    &geo,
+                    &atlas,
+                    &map_base,
+                    &view,
+                    source.name(),
+                ) {
                     Ok(snap) => eprintln!(
                         "[fetch] published {} ({} trains) -> {}/current",
                         snap.file_name().and_then(|n| n.to_str()).unwrap_or("?"),
@@ -122,6 +133,7 @@ fn publish(
     pos: &Positions,
     geo: &Geometry,
     atlas: &Atlas,
+    map_base: &render::MapBase,
     narration: &NarrationView,
     source_name: &str,
 ) -> io::Result<PathBuf> {
@@ -132,7 +144,7 @@ fn publish(
         .as_nanos();
     let snap = out.join(format!("out-{ts}"));
     fs::create_dir_all(&snap)?;
-    write_tree(&snap, pos, geo, atlas, narration, source_name)?;
+    write_tree(&snap, pos, geo, atlas, map_base, narration, source_name)?;
     flip_current(out, &snap)?;
     gc(out, &snap)?;
     Ok(snap)
@@ -159,6 +171,7 @@ fn write_tree(
     pos: &Positions,
     geo: &Geometry,
     atlas: &Atlas,
+    map_base: &render::MapBase,
     narration: &NarrationView,
     source_name: &str,
 ) -> io::Result<()> {
@@ -170,7 +183,7 @@ fn write_tree(
     fs::write(dir.join("map.txt"), render::map_page(pos, geo, source_name))?;
     fs::write(
         dir.join("map.ansi"),
-        render::map_page_ansi(pos, geo, source_name),
+        render::map_page_ansi(map_base, pos, geo, source_name),
     )?;
     fs::write(dir.join("atlas.txt"), atlas.render(pos, source_name))?;
     fs::write(dir.join("atlas.ansi"), atlas.render_ansi(pos, source_name))?;
@@ -363,10 +376,11 @@ mod tests {
         let tmp = TmpDir::new("publish");
         let geo = project::geometry();
         let atlas = Atlas::build(geo);
+        let map_base = render::MapBase::build(&geo);
         let narration = NarrationView::default();
         let pos = fixture_positions();
 
-        let snap = publish(&tmp.0, &pos, &geo, &atlas, &narration, "CTA 'L'").unwrap();
+        let snap = publish(&tmp.0, &pos, &geo, &atlas, &map_base, &narration, "CTA 'L'").unwrap();
 
         // current is a symlink to a relative out-* target
         let link = tmp.0.join("current");
@@ -475,8 +489,9 @@ mod tests {
         let pos = fixture_positions();
         let geo = project::geometry();
         let atlas = Atlas::build(geo);
+        let map_base = render::MapBase::build(&geo);
         let narration = NarrationView::default();
-        let snap = publish(&tmp.0, &pos, &geo, &atlas, &narration, "CTA 'L'").unwrap();
+        let snap = publish(&tmp.0, &pos, &geo, &atlas, &map_base, &narration, "CTA 'L'").unwrap();
 
         // root index links to the map, the atlas, and the red submenu
         let root = fs::read_to_string(snap.join("index.gph")).unwrap();
