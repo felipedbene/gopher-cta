@@ -1,0 +1,29 @@
+# logrotate config for the geomyidae access log.
+#
+# Install on the host (NOT in a container):
+#   sudo install -m 644 -o root -g root deploy/logrotate.gopher /etc/logrotate.d/gopher
+#   sudo logrotate --debug /etc/logrotate.d/gopher    # dry-run: shows what it would do
+# The distro's /etc/cron.daily/logrotate then rotates it once per day.
+#
+# Why these options:
+#   copytruncate  REQUIRED. geomyidae's compose wrapper holds the file open via
+#                 `tee -a`, so the log must be copied then truncated IN PLACE.
+#                 A rename-based rotate would leave tee writing to the old inode
+#                 and the live file would silently stop growing.
+#   dateext       one date-stamped file per day (geomyidae.log-YYYYMMDD) so a
+#                 daily batch job can process exactly one day's traffic.
+#   su nobody nogroup  /var/log/gopher is owned by uid 65534 (the container's
+#                 `nobody`), not root; logrotate needs to act as that user.
+#   delaycompress yesterday's file stays uncompressed for one day so the batch
+#                 job reads plaintext; older files are gzipped to save disk.
+/var/log/gopher/geomyidae.log {
+    daily
+    rotate 14
+    dateext
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su nobody nogroup
+}

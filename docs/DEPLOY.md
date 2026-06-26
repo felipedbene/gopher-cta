@@ -178,8 +178,15 @@ publish cadence.
   ```sh
   sudo mkdir -p /var/log/gopher && sudo chown 65534:65534 /var/log/gopher
   ```
-  `tee -a` keeps the file open, so rotate with `logrotate` + `copytruncate` (a
-  plain `mv` would leave geomyidae writing to the rotated inode).
+  `tee -a` keeps the file open, so rotation must use `copytruncate` (a plain `mv`
+  would leave geomyidae writing to the rotated inode). A ready-made daily config
+  ships at `deploy/logrotate.gopher` (`daily` + `dateext` → one
+  `geomyidae.log-YYYYMMDD` per day, ideal for a daily batch job). Install once:
+  ```sh
+  sudo install -m 644 -o root -g root deploy/logrotate.gopher /etc/logrotate.d/gopher
+  sudo logrotate --debug /etc/logrotate.d/gopher    # dry-run; --force to rotate now
+  ```
+  The distro's `/etc/cron.daily/logrotate` then rotates it once per day.
 - **Disk:** snapshots are GC'd to the newest 3 + current, so `public/` stays
   bounded.
 
