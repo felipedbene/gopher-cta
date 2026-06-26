@@ -43,9 +43,28 @@ python3 scripts/gopher-visitors.py --log scripts/sample-access.log
 Process **yesterday's** rotated file (`geomyidae.log-YYYYMMDD`) for a clean
 day-boundary batch — not the live `geomyidae.log`, which is being written to.
 
-Flags: `--log`, `--exclude-ip` (repeatable; `--exclude-ip ''` excludes nothing),
-`--asn-db PATH`, `--download-asn`, `--license-key`, `--no-rdns`, `--max-trail N`,
-`--out FILE`.
+Flags: `--log` (`-` reads stdin), `--source-label TEXT`, `--exclude-ip`
+(repeatable; `--exclude-ip ''` excludes nothing), `--asn-db PATH`,
+`--download-asn`, `--license-key`, `--no-rdns`, `--max-trail N`, `--out FILE`.
+
+### Run it against the live VPS — `visitors-remote.sh`
+
+One-shot wrapper: SSH to the gopher VPS, `cat` the remote geomyidae log, and pipe
+it into `gopher-visitors.py` running **locally** (so the ASN DB + reverse DNS
+stay on your machine). READ-ONLY on the server, single run, no daemon.
+
+```sh
+scripts/visitors-remote.sh                                    # live log, default host
+scripts/visitors-remote.sh --remote-log /var/log/gopher/geomyidae.log-20260626
+scripts/visitors-remote.sh --out ~/visitors.txt --no-rdns     # extra flags pass through
+GOPHER_SSH=felipe@192.210.238.140 scripts/visitors-remote.sh  # override host (or ssh alias)
+```
+
+Host defaults to `$GOPHER_SSH` (else `felipe@gopher.debene.dev`); remote log to
+`/var/log/gopher/geomyidae.log`. Any flag it doesn't recognise is forwarded
+verbatim to the analyzer. The live `geomyidae.log` is whatever has accumulated
+since the last rotation — point `--remote-log` at a dated
+`geomyidae.log-YYYYMMDD` for a full day's window.
 
 ### ASN database (offline, one-time)
 

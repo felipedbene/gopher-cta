@@ -33,6 +33,7 @@ says so.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import re
 import socket
@@ -110,13 +111,26 @@ def parse_ts(s):
     return None
 
 
+@contextlib.contextmanager
+def _open_log(path):
+    """Yield a text handle for `path`, or stdin when path == '-'."""
+    if path == "-":
+        yield sys.stdin
+        return
+    fh = open(path, "r", errors="replace")
+    try:
+        yield fh
+    finally:
+        fh.close()
+
+
 def read_log(path, exclude):
     """Return (hits_by_ip, stats). hits_by_ip[ip] = [(dt, selector), ...].
     Only 'serving' lines are kept; excluded IPs are dropped."""
     hits = {}
     total = served = excluded_lines = malformed = 0
     excluded_ips = set()
-    with open(path, "r", errors="replace") as fh:
+    with _open_log(path) as fh:
         for line in fh:
             line = line.rstrip("\n")
             if not line.strip():
@@ -372,7 +386,10 @@ def main(argv=None):
         description="Read-only geomyidae access-log visitor analysis.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("--log", default=LOG_DEFAULT, help=f"access log path (default {LOG_DEFAULT})")
+    ap.add_argument("--log", default=LOG_DEFAULT,
+                    help=f"access log path, or '-' for stdin (default {LOG_DEFAULT})")
+    ap.add_argument("--source-label", default=None, metavar="TEXT",
+                    help="label shown for the log source in the report header (e.g. host:path)")
     ap.add_argument("--exclude-ip", action="append", default=None, metavar="IP",
                     help=f"drop this IP (repeatable; default once: {SELF_IP_DEFAULT})")
     ap.add_argument("--asn-db", default=None, metavar="PATH",
@@ -396,7 +413,7 @@ def main(argv=None):
             ap.error("--download-asn needs --license-key or $MAXMIND_LICENSE_KEY")
         download_asn_db(asn_path, args.license_key)
 
-    if not os.path.exists(args.log):
+    if args.log != "-" and not os.path.exists(args.log):
         ap.error(f"log not found: {args.log}")
 
     hits, stats = read_log(args.log, exclude)
@@ -413,7 +430,8 @@ def main(argv=None):
         records.append(analyze(ip, hits[ip], rdns_map.get(ip), org, num))
     records.sort(key=lambda r: (r["n"], r["span"]), reverse=True)
 
-    meta = {"log": args.log, "asn": asn_desc, "rdns": not args.no_rdns}
+    log_label = args.source_label or ("(stdin)" if args.log == "-" else args.log)
+    meta = {"log": log_label, "asn": asn_desc, "rdns": not args.no_rdns}
     report = render(records, stats, meta, args.max_trail)
     sys.stdout.write(report)
     if args.out:
