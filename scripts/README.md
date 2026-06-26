@@ -47,6 +47,21 @@ Flags: `--log` (`-` reads stdin), `--source-label TEXT`, `--exclude-ip`
 (repeatable; `--exclude-ip ''` excludes nothing), `--asn-db PATH`,
 `--download-asn`, `--license-key`, `--no-rdns`, `--max-trail N`, `--out FILE`.
 
+### Temporal distribution (post-release impact)
+
+`--timeline` appends an ASCII histogram of served hits over time, split
+human/bot/unknown per bucket (UTC). `--bucket` sets the bin (`day`, `hour`, or
+`N` / `Nm` minutes; default `hour`). `--release '<ts>'` marks a release moment
+and prints a before/after summary (hits, distinct IPs, humans, bots) — handy for
+gauging what a launch actually drove. The release timestamp is UTC; convert from
+local first (e.g. Chicago CDT 11:37 → `'2026-06-25 16:37'`).
+
+```sh
+scripts/visitors-remote.sh --remote-log /var/log/gopher/geomyidae.log-20260625-23 \
+    --release '2026-06-25 16:37' --out ~/post-release.txt
+scripts/visitors-remote.sh --bucket 15m --timeline      # finer-grained spike view
+```
+
 ### Run it against the live VPS — `visitors-remote.sh`
 
 One-shot wrapper: SSH to the gopher VPS, `cat` the remote geomyidae log, and pipe

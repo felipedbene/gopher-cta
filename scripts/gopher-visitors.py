@@ -43,7 +43,7 @@ import tarfile
 import tempfile
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 LOG_DEFAULT = "/var/log/gopher/geomyidae.log"
 SELF_IP_DEFAULT = "73.211.52.98"  # felipe's own testing/kiosk IP — dropped by default
@@ -380,6 +380,113 @@ def render(records, stats, meta, max_trail):
     return "\n".join(L) + "\n"
 
 
+# --- temporal distribution ---------------------------------------------------
+def parse_bucket(s):
+    """'day' | 'hour' | '30m' | '15' -> (is_day, minutes)."""
+    s = s.strip().lower()
+    if s in ("day", "d", "1d"):
+        return True, 1440
+    if s in ("hour", "hr", "h", "1h", "60m"):
+        return False, 60
+    m = re.match(r"^(\d+)\s*m(in)?$", s)
+    if m:
+        return False, int(m.group(1))
+    if s.isdigit():
+        return False, int(s)
+    raise ValueError(f"bad --bucket {s!r} (use day, hour, or N / Nm)")
+
+
+def parse_release(s):
+    s = s.strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%dT%H:%M", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(s, fmt)
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    raise ValueError(f"unparseable --release timestamp {s!r}")
+
+
+def _vclass(verdict):
+    if verdict in ("HUMAN", "LIKELY HUMAN"):
+        return "h"
+    if verdict in ("BOT/CRAWLER", "LIKELY BOT"):
+        return "b"
+    return "q"
+
+
+def render_timeline(flat, ip_verdict, bucket_spec, release):
+    """flat = [(dt, ip), ...] (already excludes dropped IPs)."""
+    is_day, minutes = bucket_spec
+    step = timedelta(days=1) if is_day else timedelta(minutes=minutes)
+    label_fmt = "%Y-%m-%d" if is_day else "%m-%d %H:%M"
+    unit = "day" if is_day else (f"{minutes}min" if minutes != 60 else "hour")
+
+    def floor(dt):
+        if is_day:
+            return dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        tm = (dt.hour * 60 + dt.minute) // minutes * minutes
+        return dt.replace(hour=tm // 60, minute=tm % 60, second=0, microsecond=0)
+
+    L = []
+    p = L.append
+    p("=" * 72)
+    p(f"temporal distribution — per {unit} (UTC), served hits, humans vs bots")
+    p("=" * 72)
+    if not flat:
+        p("(no traffic to bucket)")
+        return "\n".join(L) + "\n"
+
+    buckets = {}  # start -> {n, h, b, q, ips:set}
+    for dt, ip in flat:
+        b = floor(dt)
+        slot = buckets.setdefault(b, {"n": 0, "h": 0, "b": 0, "q": 0, "ips": set()})
+        slot["n"] += 1
+        slot[_vclass(ip_verdict.get(ip, ""))] += 1
+        slot["ips"].add(ip)
+
+    start, end = floor(min(b for b, _ in flat)), floor(max(b for b, _ in flat))
+    n_slots = int((end - start) / step) + 1
+    if n_slots > 400:
+        p(f"(warning: {n_slots} buckets at this resolution — try a bigger --bucket)")
+
+    peak = max(s["n"] for s in buckets.values())
+    width = 40
+    released = False
+    cur = start
+    while cur <= end:
+        if release is not None and not released and cur + step > release:
+            p(f"  {'·' * 16}  ── release {release:%Y-%m-%d %H:%M} UTC ──")
+            released = True
+        s = buckets.get(cur)
+        n = s["n"] if s else 0
+        bar = "█" * round(n / peak * width) if peak and n else ""
+        split = f"{s['h']}/{s['b']}/{s['q']}" if s else "0/0/0"
+        mark = "  <- peak" if s and n == peak else ""
+        p(f"  {cur.strftime(label_fmt)}  {n:>4}  h/b/?={split:<9} │{bar}{mark}")
+        cur += step
+
+    p("")
+    p("  legend: h=human(+likely)  b=bot(+likely)  ?=unknown   bar scaled to peak")
+
+    if release is not None:
+        def summarize(pred):
+            sub = [(dt, ip) for dt, ip in flat if pred(dt)]
+            ips = {ip for _, ip in sub}
+            humans = {ip for _, ip in sub if _vclass(ip_verdict.get(ip, "")) == "h"}
+            bots = {ip for _, ip in sub if _vclass(ip_verdict.get(ip, "")) == "b"}
+            return len(sub), len(ips), len(humans), len(bots)
+
+        bn, bip, bh, bb = summarize(lambda d: d < release)
+        an, aip, ah, ab = summarize(lambda d: d >= release)
+        p("")
+        p(f"  before/after release {release:%Y-%m-%d %H:%M} UTC:")
+        p(f"    before: {bn:>4} hits · {bip:>2} IPs ({bh} human, {bb} bot)")
+        p(f"    after : {an:>4} hits · {aip:>2} IPs ({ah} human, {ab} bot)")
+    return "\n".join(L) + "\n"
+
+
 # --- main --------------------------------------------------------------------
 def main(argv=None):
     ap = argparse.ArgumentParser(
@@ -401,6 +508,12 @@ def main(argv=None):
     ap.add_argument("--no-rdns", action="store_true", help="skip reverse-DNS lookups")
     ap.add_argument("--max-trail", type=int, default=10, metavar="N",
                     help="selectors to show per visitor before collapsing (default 10)")
+    ap.add_argument("--timeline", action="store_true",
+                    help="append a temporal distribution histogram (hits over time)")
+    ap.add_argument("--bucket", default="hour", metavar="SIZE",
+                    help="timeline bin size: day, hour, or N / Nm minutes (default hour)")
+    ap.add_argument("--release", default=None, metavar="TS",
+                    help="mark a release time (UTC, e.g. '2026-06-25 12:00') and split before/after; implies --timeline")
     ap.add_argument("--out", default=None, metavar="FILE", help="also write the report to FILE")
     args = ap.parse_args(argv)
 
@@ -433,6 +546,14 @@ def main(argv=None):
     log_label = args.source_label or ("(stdin)" if args.log == "-" else args.log)
     meta = {"log": log_label, "asn": asn_desc, "rdns": not args.no_rdns}
     report = render(records, stats, meta, args.max_trail)
+
+    if args.timeline or args.release:
+        release = parse_release(args.release) if args.release else None
+        bucket_spec = parse_bucket(args.bucket)
+        ip_verdict = {r["ip"]: r["verdict"] for r in records}
+        flat = [(dt, ip) for ip in hits for dt, _ in hits[ip]]
+        report += "\n" + render_timeline(flat, ip_verdict, bucket_spec, release)
+
     sys.stdout.write(report)
     if args.out:
         with open(args.out, "w") as fh:
