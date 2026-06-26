@@ -125,9 +125,9 @@ data:
           "datasource": { "type": "loki", "uid": "${datasource}" },
           "gridPos": { "h": 9, "w": 8, "x": 16, "y": 4 },
           "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
-          "options": { "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "pieType": "donut", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+          "options": { "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "pieType": "donut", "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false } },
           "targets": [
-            { "refId": "A", "datasource": { "type": "loki", "uid": "${datasource}" }, "editorMode": "code", "queryType": "instant", "legendFormat": "{{verdict}}", "expr": "sum by (verdict) (count_over_time({job=\"gopher-cta-visitors\"} | json [$__range]))" }
+            { "refId": "A", "datasource": { "type": "loki", "uid": "${datasource}" }, "editorMode": "code", "queryType": "range", "legendFormat": "{{verdict}}", "expr": "sum by (verdict) (count_over_time({job=\"gopher-cta-visitors\"} | json [$__interval]))" }
           ]
         },
         {
@@ -166,9 +166,9 @@ data:
           "datasource": { "type": "loki", "uid": "${datasource}" },
           "gridPos": { "h": 8, "w": 8, "x": 16, "y": 13 },
           "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
-          "options": { "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "pieType": "pie", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+          "options": { "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "pieType": "pie", "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false } },
           "targets": [
-            { "refId": "A", "datasource": { "type": "loki", "uid": "${datasource}" }, "editorMode": "code", "queryType": "instant", "legendFormat": "{{kind}}", "expr": "sum by (kind) (count_over_time({job=\"gopher-cta-visitors\"} | json [$__range]))" }
+            { "refId": "A", "datasource": { "type": "loki", "uid": "${datasource}" }, "editorMode": "code", "queryType": "range", "legendFormat": "{{kind}}", "expr": "sum by (kind) (count_over_time({job=\"gopher-cta-visitors\"} | json [$__interval]))" }
           ]
         },
         {
