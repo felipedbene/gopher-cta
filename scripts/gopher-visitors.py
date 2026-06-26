@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import json
 import os
 import re
 import socket
@@ -487,6 +488,33 @@ def render_timeline(flat, ip_verdict, bucket_spec, release):
     return "\n".join(L) + "\n"
 
 
+# --- NDJSON emit (for shipping to Loki / OpenSearch) -------------------------
+def emit_ndjson(records, hits):
+    """One JSON object per HIT (time-series friendly), carrying the per-visitor
+    enrichment joined in. High-cardinality fields stay in the line body — labels
+    are applied downstream by the shipper, not here."""
+    meta = {r["ip"]: r for r in records}
+    rows = []
+    for ip in hits:
+        r = meta.get(ip, {})
+        for dt, sel in hits[ip]:
+            obj = {
+                "ts": dt.isoformat(),
+                "ts_ns": str(int(dt.timestamp() * 1_000_000_000)),
+                "ip": ip,
+                "selector": sel,
+                "rdns": r.get("rdns"),
+                "asn": r.get("asn"),
+                "org": r.get("org"),
+                "kind": r.get("kind"),
+                "verdict": r.get("verdict"),
+                "vclass": _vclass(r.get("verdict", "")),
+            }
+            rows.append((dt, json.dumps(obj, ensure_ascii=False)))
+    rows.sort(key=lambda t: t[0])
+    return "".join(line + "\n" for _, line in rows)
+
+
 # --- main --------------------------------------------------------------------
 def main(argv=None):
     ap = argparse.ArgumentParser(
@@ -514,7 +542,9 @@ def main(argv=None):
                     help="timeline bin size: day, hour, or N / Nm minutes (default hour)")
     ap.add_argument("--release", default=None, metavar="TS",
                     help="mark a release time (UTC, e.g. '2026-06-25 12:00') and split before/after; implies --timeline")
-    ap.add_argument("--out", default=None, metavar="FILE", help="also write the report to FILE")
+    ap.add_argument("--format", choices=["report", "ndjson"], default="report",
+                    help="report (human, default) or ndjson (one enriched JSON per hit, for shipping)")
+    ap.add_argument("--out", default=None, metavar="FILE", help="also write the output to FILE")
     args = ap.parse_args(argv)
 
     exclude = set(args.exclude_ip if args.exclude_ip is not None else [SELF_IP_DEFAULT])
@@ -542,6 +572,15 @@ def main(argv=None):
         num, org = asn_lookup(reader, ip)
         records.append(analyze(ip, hits[ip], rdns_map.get(ip), org, num))
     records.sort(key=lambda r: (r["n"], r["span"]), reverse=True)
+
+    if args.format == "ndjson":
+        out = emit_ndjson(records, hits)
+        sys.stdout.write(out)
+        if args.out:
+            with open(args.out, "w") as fh:
+                fh.write(out)
+            print(f"\n[ndjson written to {args.out}]", file=sys.stderr)
+        return 0
 
     log_label = args.source_label or ("(stdin)" if args.log == "-" else args.log)
     meta = {"log": log_label, "asn": asn_desc, "rdns": not args.no_rdns}

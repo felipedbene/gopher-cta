@@ -62,6 +62,52 @@ scripts/visitors-remote.sh --remote-log /var/log/gopher/geomyidae.log-20260625-2
 scripts/visitors-remote.sh --bucket 15m --timeline      # finer-grained spike view
 ```
 
+### Ship to Grafana Loki — `--format ndjson` + `visitors-to-loki.py`
+
+For dashboards, the analyzer can emit **one enriched JSON object per hit**
+(`--format ndjson`: `ts/ts_ns/ip/selector/rdns/asn/org/kind/verdict/vclass`)
+instead of a report. `visitors-to-loki.py` reads that NDJSON on stdin and pushes
+it to Loki's `/loki/api/v1/push`, keeping **static low-cardinality labels**
+(`{job, host}`) and putting every other field in the **line body** — query them
+in Grafana with LogQL `| json`. (Putting ip/selector in labels would explode
+cardinality; don't.)
+
+```sh
+# inspect the exact payload, send nothing
+scripts/visitors-remote.sh --remote-log <log> --format ndjson \
+  | python3 scripts/visitors-to-loki.py --dry-run
+
+# real push (self-hosted Loki)
+scripts/visitors-remote.sh --remote-log <log> --format ndjson \
+  | LOKI_URL=http://LOKI_HOST:3100 python3 scripts/visitors-to-loki.py
+
+# Grafana Cloud (basic auth: user=instance id, pass=API token)
+... --format ndjson | LOKI_URL=https://logs-prod-XX.grafana.net \
+    LOKI_USER=123456 LOKI_PASS=glc_xxx python3 scripts/visitors-to-loki.py
+```
+
+Pusher config (flags or env): `LOKI_URL`, `LOKI_USER`/`LOKI_PASS` (basic auth),
+`LOKI_TENANT` (`X-Scope-OrgID`), `LOKI_HOST_LABEL`, plus `--job`, `--extra-label
+K=V`, `--batch`, `--dry-run`.
+
+**Daily batch** — `visitors-to-loki.sh` chains the whole thing for one host: it
+ssh-`cat`s the VPS's *yesterday-dated* rotated log, enriches locally, and pushes.
+Wire it to cron/launchd yourself for a true daily cadence; it needs `maxminddb` +
+the GeoLite2-ASN DB on whatever box runs it.
+
+```sh
+LOKI_URL=http://LOKI_HOST:3100 scripts/visitors-to-loki.sh            # yesterday
+REMOTE_LOG=/var/log/gopher/geomyidae.log-20260625-23 \
+    LOKI_URL=... scripts/visitors-to-loki.sh                          # a specific file
+```
+
+Example Grafana/LogQL once it's flowing:
+```logql
+{job="gopher-cta-visitors"} | json | vclass="h"                       # humans only
+sum by (verdict) (count_over_time({job="gopher-cta-visitors"} | json [1h]))
+sum by (org) (count_over_time({job="gopher-cta-visitors"} | json | vclass="h" [24h]))
+```
+
 ### Run it against the live VPS — `visitors-remote.sh`
 
 One-shot wrapper: SSH to the gopher VPS, `cat` the remote geomyidae log, and pipe
