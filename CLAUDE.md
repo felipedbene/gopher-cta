@@ -107,6 +107,11 @@ fetcher image through a gitignored `docker-compose.override.yml` (local
 [`docs/DEPLOY.md`](docs/DEPLOY.md)** — deploy steps, verification, troubleshooting.
 NOT k8s: `deploy/gopher-cta.yaml` exists but is unapplied. Don't look in the cluster.
 
+geomyidae's access log persists to the host at `/var/log/gopher/geomyidae.log`
+(compose wraps it in `sh -c … | tee -a`, bind-mounting `/var/log/gopher`). One-time
+host prep so `nobody` (uid 65534) can write: `sudo mkdir -p /var/log/gopher &&
+sudo chown 65534:65534 /var/log/gopher`. See `docs/DEPLOY.md` Logs note.
+
 The Mac Studio (`gopher://10.0.10.69:7070`) is just a **dev/preview box**, not
 prod. Its setup:
 1. `geo` — `geomyidae:local`, `-p 7070:7070`, mounts repo `public/ -> /srv`,

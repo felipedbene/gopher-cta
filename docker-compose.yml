@@ -40,14 +40,27 @@ services:
       dockerfile: Dockerfile.geomyidae
     image: geomyidae:local
     container_name: geo
-    # Advertised host AND port for the .gph `server`/`port` tokens. Driving `-o`
-    # from $GOPHER_PORT makes this base file self-sufficient for production, so the
-    # gitignored override (which used to set this) can be retired entirely.
-    command: ["-h", "${GOPHER_HOST:-10.0.10.69}", "-o", "${GOPHER_PORT:-7070}"]
+    # Wrap the daemon in a shell so its stdout access log
+    # ([... |<ip>|<port>|serving] /selector) is tee'd to a bind-mounted host file
+    # AND still visible via `docker compose logs -f geomyidae`. The Dockerfile
+    # ENTRYPOINT (geomyidae -d -b /srv/current -p 7070) is overridden here because
+    # tee needs the whole argv in one shell string — entrypoint + command no longer
+    # concatenate. Advertised host/port (-h/-o) fill the .gph `server`/`port`
+    # tokens; Compose interpolates ${GOPHER_*} before the shell runs, so defaults
+    # are unchanged. -d (foreground) is preserved so the process keeps feeding the
+    # pipe. NOTE: the host dir must be writable by uid 65534 (geomyidae's `nobody`):
+    #   sudo mkdir -p /var/log/gopher && sudo chown 65534:65534 /var/log/gopher
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        geomyidae -d -b /srv/current -p 7070
+        -h "${GOPHER_HOST:-10.0.10.69}" -o "${GOPHER_PORT:-7070}"
+        2>&1 | tee -a /var/log/gopher/geomyidae.log
     ports:
       - "${GOPHER_PORT:-7070}:7070"
     volumes:
       - ./public:/srv:ro
+      - /var/log/gopher:/var/log/gopher
     depends_on:
       - fetcher
     restart: unless-stopped

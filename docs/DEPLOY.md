@@ -169,7 +169,17 @@ publish cadence.
   fixture (`fixtures/positions.json`) — useful for validating a deploy without
   hitting the live feed.
 - **Logs:** `docker compose logs -f fetcher` shows each publish
-  (`[fetch] published out-<ts> (<n> trains) -> public/current`).
+  (`[fetch] published out-<ts> (<n> trains) -> public/current`). geomyidae's
+  per-request **access log** (`[<ts>|<ip>|<port>|serving] /selector`) is both
+  shown by `docker compose logs -f geomyidae` and persisted to the host at
+  **`/var/log/gopher/geomyidae.log`** (bind-mount), so it survives container
+  recreation (e.g. Watchtower). One-time host prep — the dir must be writable by
+  geomyidae's `nobody` (uid 65534):
+  ```sh
+  sudo mkdir -p /var/log/gopher && sudo chown 65534:65534 /var/log/gopher
+  ```
+  `tee -a` keeps the file open, so rotate with `logrotate` + `copytruncate` (a
+  plain `mv` would leave geomyidae writing to the rotated inode).
 - **Disk:** snapshots are GC'd to the newest 3 + current, so `public/` stays
   bounded.
 
