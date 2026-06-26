@@ -1,0 +1,201 @@
+# Grafana dashboard as a ConfigMap, auto-loaded by the grafana-sc-dashboard
+# sidecar (watches LABEL grafana_dashboard=1 across all namespaces). Apply it and
+# the dashboard shows up in Grafana under the "Gopher-CTA" folder — no manual
+# import, version-controlled.
+#
+#   kubectl apply -f deploy/grafana-visitors-dashboard-configmap.yaml
+#
+# This wraps deploy/grafana-visitors-dashboard.json. To change the dashboard,
+# edit that JSON and regenerate this file (see git history / scripts).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gopher-cta-visitors-dashboard
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    grafana_dashboard_folder: "Gopher-CTA"
+data:
+  gopher-cta-visitors.json: |
+    {
+      "__inputs": [],
+      "__requires": [],
+      "annotations": { "list": [] },
+      "description": "Who is visiting the gopher-cta server. Reads enriched visitor events shipped to Loki by scripts/visitors-to-loki.py ({job=\"gopher-cta-visitors\"}, line = JSON with ip/org/asn/rdns/kind/verdict/vclass).",
+      "editable": true,
+      "graphTooltip": 1,
+      "tags": ["gopher-cta", "visitors", "loki"],
+      "templating": {
+        "list": [
+          {
+            "current": {},
+            "hide": 0,
+            "includeAll": false,
+            "label": "Loki datasource",
+            "multi": false,
+            "name": "datasource",
+            "options": [],
+            "query": "loki",
+            "refresh": 1,
+            "regex": "",
+            "skipUrlSync": false,
+            "type": "datasource"
+          }
+        ]
+      },
+      "time": { "from": "now-7d", "to": "now" },
+      "timepicker": {},
+      "refresh": "",
+      "schemaVersion": 39,
+      "version": 1,
+      "title": "Gopher-CTA — Visitors",
+      "uid": "gopher-cta-visitors",
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Served hits",
+          "description": "Total served requests in range (excludes the operator IP, dropped upstream).",
+          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" }, "unit": "short" }, "overrides": [] },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "area", "textMode": "auto", "justifyMode": "auto" },
+          "targets": [
+            { "refId": "A", "datasource": { "type": "loki", "uid": "${datasource}" }, "editorMode": "code", "queryType": "instant", "expr": "sum(count_over_time({job=\"gopher-cta-visitors\"} | json [$__range]))" }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Distinct visitors",
+          "description": "Unique source IPs in range.",
+          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+          "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "purple" }, "unit": "short" }, "overrides": [] },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "textMode": "auto", "justifyMode": "auto" },
+          "targets": [
+            { "refId": "A", "datasource": { "type": "loki", "uid": "${datasource}" }, "editorMode": "code", "queryType": "instant", "expr": "count(sum by (ip) (count_over_time({job=\"gopher-cta-visitors\"} | json [$__range])))" }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Human visitors",
+          "description": "Distinct IPs whose verdict is HUMAN / LIKELY HUMAN (vclass=h).",
+          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+          "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "green" }, "unit": "short" }, "overrides": [] },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "textMode": "auto", "justifyMode": "auto" },
+          "targets": [
+            { "refId": "A", "datasource": { "type": "loki", "uid": "${datasource}" }, "editorMode": "code", "queryType": "instant", "expr": "count(sum by (ip) (count_over_time({job=\"gopher-cta-visitors\"} | json | vclass=\"h\" [$__range])))" }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Bot / crawler visitors",
+          "description": "Distinct IPs whose verdict is BOT/CRAWLER / LIKELY BOT (vclass=b).",
+          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+          "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "red" }, "unit": "short" }, "overrides": [] },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "textMode": "auto", "justifyMode": "auto" },
+          "targets": [
+            { "refId": "A", "datasource": { "type": "loki", "uid": "${datasource}" }, "editorMode": "code", "queryType": "instant", "expr": "count(sum by (ip) (count_over_time({job=\"gopher-cta-visitors\"} | json | vclass=\"b\" [$__range])))" }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Hits over time by verdict",
+          "description": "Request rate bucketed over time, split by the human/bot verdict. A release shows up as a jump in the HUMAN series.",
+          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "gridPos": { "h": 9, "w": 16, "x": 0, "y": 4 },
+          "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60, "stacking": { "mode": "normal", "group": "A" }, "lineWidth": 1 }, "unit": "short" }, "overrides": [] },
+          "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "targets": [
+            { "refId": "A", "datasource": { "type": "loki", "uid": "${datasource}" }, "editorMode": "code", "queryType": "range", "legendFormat": "{{verdict}}", "expr": "sum by (verdict) (count_over_time({job=\"gopher-cta-visitors\"} | json [$__interval]))" }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "piechart",
+          "title": "Verdict distribution",
+          "description": "Share of hits by verdict over the range.",
+          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "gridPos": { "h": 9, "w": 8, "x": 16, "y": 4 },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "options": { "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "pieType": "donut", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+          "targets": [
+            { "refId": "A", "datasource": { "type": "loki", "uid": "${datasource}" }, "editorMode": "code", "queryType": "instant", "legendFormat": "{{verdict}}", "expr": "sum by (verdict) (count_over_time({job=\"gopher-cta-visitors\"} | json [$__range]))" }
+          ]
+        },
+        {
+          "id": 7,
+          "type": "table",
+          "title": "Top human visitors by org",
+          "description": "Which networks the (likely) humans came from.",
+          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 13 },
+          "fieldConfig": { "defaults": {}, "overrides": [] },
+          "options": { "showHeader": true, "sortBy": [{ "displayName": "Value #A", "desc": true }] },
+          "transformations": [ { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "org": "Org", "Value #A": "Hits", "Value": "Hits" } } } ],
+          "targets": [
+            { "refId": "A", "datasource": { "type": "loki", "uid": "${datasource}" }, "editorMode": "code", "queryType": "instant", "expr": "sum by (org) (count_over_time({job=\"gopher-cta-visitors\"} | json | vclass=\"h\" [$__range]))" }
+          ]
+        },
+        {
+          "id": 8,
+          "type": "table",
+          "title": "Top selectors",
+          "description": "Most-requested gopher selectors (empty = root menu).",
+          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 13 },
+          "fieldConfig": { "defaults": {}, "overrides": [] },
+          "options": { "showHeader": true, "sortBy": [{ "displayName": "Value #A", "desc": true }] },
+          "transformations": [ { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "selector": "Selector", "Value #A": "Hits", "Value": "Hits" } } } ],
+          "targets": [
+            { "refId": "A", "datasource": { "type": "loki", "uid": "${datasource}" }, "editorMode": "code", "queryType": "instant", "expr": "sum by (selector) (count_over_time({job=\"gopher-cta-visitors\"} | json | selector!=\"\" [$__range]))" }
+          ]
+        },
+        {
+          "id": 9,
+          "type": "piechart",
+          "title": "Network kind",
+          "description": "Residential vs datacenter vs unknown (by ASN/rDNS).",
+          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 13 },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "options": { "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "pieType": "pie", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+          "targets": [
+            { "refId": "A", "datasource": { "type": "loki", "uid": "${datasource}" }, "editorMode": "code", "queryType": "instant", "legendFormat": "{{kind}}", "expr": "sum by (kind) (count_over_time({job=\"gopher-cta-visitors\"} | json [$__range]))" }
+          ]
+        },
+        {
+          "id": 10,
+          "type": "table",
+          "title": "Visitors (per IP)",
+          "description": "One row per source IP with its org, network kind, verdict and hit count.",
+          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 21 },
+          "fieldConfig": { "defaults": {}, "overrides": [] },
+          "options": { "showHeader": true, "sortBy": [{ "displayName": "Value #A", "desc": true }] },
+          "transformations": [ { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "ip": "IP", "org": "Org", "kind": "Kind", "verdict": "Verdict", "Value #A": "Hits", "Value": "Hits" } } } ],
+          "targets": [
+            { "refId": "A", "datasource": { "type": "loki", "uid": "${datasource}" }, "editorMode": "code", "queryType": "instant", "expr": "sum by (ip, org, kind, verdict) (count_over_time({job=\"gopher-cta-visitors\"} | json [$__range]))" }
+          ]
+        },
+        {
+          "id": 11,
+          "type": "logs",
+          "title": "Raw enriched visits",
+          "description": "The shipped visitor events, newest first. Each line is JSON: ip/selector/asn/org/rdns/kind/verdict/vclass.",
+          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 29 },
+          "options": { "showTime": true, "showLabels": false, "wrapLogMessage": true, "prettifyLogMessage": true, "enableLogDetails": true, "dedupStrategy": "none", "sortOrder": "Descending" },
+          "targets": [
+            { "refId": "A", "datasource": { "type": "loki", "uid": "${datasource}" }, "editorMode": "code", "queryType": "range", "expr": "{job=\"gopher-cta-visitors\"} | json" }
+          ]
+        }
+      ]
+    }
