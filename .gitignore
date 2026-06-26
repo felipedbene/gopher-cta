@@ -6,6 +6,9 @@ Cargo.lock
 nohup.out
 /public
 docker-compose.override.yml
+# Downloaded GeoLite2 ASN DB for scripts/gopher-visitors.py (artifact, not source)
+*.mmdb
+scripts/GeoLite2-ASN.mmdb
 docker-compose.override.yml
 docker-compose.override.yml
 docker-compose.override.yml
