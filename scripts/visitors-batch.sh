@@ -21,8 +21,15 @@ set -eu
 
 HOST="${GOPHER_SSH:?GOPHER_SSH required (user@host)}"
 : "${LOKI_URL:?LOKI_URL required (e.g. http://loki-gateway)}"
-KEY="${SSH_KEY:-/keys/id_ed25519}"
+KEYSRC="${SSH_KEY:-/keys/id_ed25519}"
 KNOWN_HOSTS="${KNOWN_HOSTS:-/tmp/known_hosts}"
+
+# ssh refuses keys with group/world-readable perms, and the mounted Secret is
+# owned by root with a fixed mode — so copy it to a private 0600 file we own.
+# (mktemp creates 0600; cp keeps the destination mode.)
+KEY="$(mktemp)"
+cp "$KEYSRC" "$KEY"
+chmod 600 "$KEY"
 DAYS_AGO="${DAYS_AGO:-1}"
 REMOTE_LOG="${REMOTE_LOG:-/var/log/gopher/geomyidae.log-$(date -u -d "${DAYS_AGO} days ago" +%Y%m%d)}"
 
@@ -33,10 +40,21 @@ RDNS_FLAG=""
 echo "[visitors-batch] ${HOST}:${REMOTE_LOG} -> ${LOKI_URL}" >&2
 
 tmp="$(mktemp)"
-trap 'rm -f "$tmp"' EXIT
+err="$(mktemp)"
+trap 'rm -f "$tmp" "$err" "$KEY"' EXIT
 
-if ! $SSH "$HOST" "cat -- '$REMOTE_LOG'" >"$tmp" 2>/dev/null; then
-  echo "[visitors-batch] cannot read ${REMOTE_LOG} (missing file or ssh failure) — exit 0" >&2
+# ssh exit 255 = ssh-level failure (connection/auth) -> FAIL LOUDLY (don't silently
+# ship nothing forever). A non-zero from the remote `cat` (e.g. 1) = the dated file
+# isn't there yet -> tolerate (no rotation/traffic that day is not an error).
+# `|| rc=$?` keeps `set -e` from aborting here before we inspect the code.
+rc=0
+$SSH "$HOST" "cat -- '$REMOTE_LOG'" >"$tmp" 2>"$err" || rc=$?
+if [ "$rc" -eq 255 ]; then
+  echo "[visitors-batch] SSH failure (rc=255) reaching ${HOST}: $(tr '\n' ' ' <"$err")" >&2
+  exit 1
+fi
+if [ "$rc" -ne 0 ]; then
+  echo "[visitors-batch] ${REMOTE_LOG} not readable (cat rc=${rc}) — likely not rotated yet; exit 0" >&2
   exit 0
 fi
 if [ ! -s "$tmp" ]; then

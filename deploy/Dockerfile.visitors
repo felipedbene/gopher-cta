@@ -25,6 +25,11 @@ COPY scripts/gopher-visitors.py scripts/visitors-to-loki.py scripts/visitors-bat
 COPY deploy/GeoLite2-ASN.mmdb /opt/GeoLite2-ASN.mmdb
 RUN chmod +x /app/visitors-batch.sh
 
+# A fixed non-root uid with a /etc/passwd entry + HOME: ssh calls getpwuid() and
+# aborts ("No user exists for uid") without one. The CronJob runs as this uid.
+RUN useradd --uid 65532 --create-home --shell /usr/sbin/nologin app
+
 # The analyzer reads $GEOLITE2_ASN_DB first when locating the ASN DB.
 ENV GEOLITE2_ASN_DB=/opt/GeoLite2-ASN.mmdb
+USER 65532
 ENTRYPOINT ["/app/visitors-batch.sh"]

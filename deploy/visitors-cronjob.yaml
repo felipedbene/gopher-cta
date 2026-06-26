@@ -98,6 +98,6 @@ spec:
             - name: ssh-key
               secret:
                 secretName: gopher-visitors-ssh
-                defaultMode: 0400
+                defaultMode: 0440      # fsGroup 65532 reads it; entrypoint copies to a 0600 file
             - name: tmp
               emptyDir: {}
