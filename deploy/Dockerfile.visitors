@@ -1,0 +1,30 @@
+# Image for the in-cluster daily visitor batch (deploy/visitors-cronjob.yaml).
+#
+# Bundles the read-only analysis scripts + the GeoLite2-ASN DB so the CronJob can
+# ssh-cat the VPS log, enrich it (ASN offline + reverse DNS + human/bot verdict),
+# and push to Loki — no license key or ASN download needed at runtime.
+#
+# The GeoLite2-ASN.mmdb is COPIED from the build context (it's gitignored, not a
+# committed artifact). Stage it before building:
+#
+#   cp ~/.cache/gopher-cta/GeoLite2-ASN.mmdb deploy/GeoLite2-ASN.mmdb
+#   docker buildx build --platform linux/amd64 \
+#     -f deploy/Dockerfile.visitors \
+#     -t ghcr.io/felipedbene/gopher-cta-visitors:latest --load .
+#   # then felipe pushes (Claude can't push to ghcr):
+#   docker push ghcr.io/felipedbene/gopher-cta-visitors:latest
+FROM python:3.12-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssh-client ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && pip install --no-cache-dir maxminddb
+
+WORKDIR /app
+COPY scripts/gopher-visitors.py scripts/visitors-to-loki.py scripts/visitors-batch.sh /app/
+COPY deploy/GeoLite2-ASN.mmdb /opt/GeoLite2-ASN.mmdb
+RUN chmod +x /app/visitors-batch.sh
+
+# The analyzer reads $GEOLITE2_ASN_DB first when locating the ASN DB.
+ENV GEOLITE2_ASN_DB=/opt/GeoLite2-ASN.mmdb
+ENTRYPOINT ["/app/visitors-batch.sh"]

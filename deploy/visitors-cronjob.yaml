@@ -1,0 +1,103 @@
+# Daily in-cluster visitor batch: ssh-cat the VPS geomyidae log, enrich locally
+# (ASN + reverse DNS + human/bot verdict), push to Loki. Loki stays private
+# (in-cluster loki-gateway); nothing is exposed externally.
+#
+# ── One-time setup ─────────────────────────────────────────────────────────────
+# 1) Build + push the image (see deploy/Dockerfile.visitors header):
+#      cp ~/.cache/gopher-cta/GeoLite2-ASN.mmdb deploy/GeoLite2-ASN.mmdb
+#      docker buildx build --platform linux/amd64 -f deploy/Dockerfile.visitors \
+#        -t ghcr.io/felipedbene/gopher-cta-visitors:latest --load .
+#      docker push ghcr.io/felipedbene/gopher-cta-visitors:latest   # felipe pushes
+#    (Make the ghcr package public, or add imagePullSecrets below.)
+#
+# 2) Create the SSH key Secret the Job uses to read the VPS log. Best practice:
+#    a DEDICATED key, and on the VPS restrict it in ~/.ssh/authorized_keys with
+#      command="cat /var/log/gopher/geomyidae.log-*",no-port-forwarding,no-pty <key>
+#    so the key can ONLY read the logs. Create the Secret from the PRIVATE key:
+#      kubectl -n observability create secret generic gopher-visitors-ssh \
+#        --from-file=id_ed25519=/path/to/dedicated_key
+#
+# 3) Apply this file:  kubectl apply -f deploy/visitors-cronjob.yaml
+#
+# ── Test / backfill ────────────────────────────────────────────────────────────
+#   # run once now, off-schedule:
+#   kubectl -n observability create job --from=cronjob/gopher-visitors-batch viz-test
+#   kubectl -n observability logs job/viz-test -f
+#   # backfill a specific (e.g. weirdly-named) file by overriding REMOTE_LOG:
+#   kubectl -n observability set env cronjob/gopher-visitors-batch \
+#     REMOTE_LOG=/var/log/gopher/geomyidae.log-20260625-23
+#
+# Verify in Grafana (Loki datasource):  {job="gopher-cta-visitors"} | json | vclass="h"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: gopher-visitors-batch
+  namespace: observability
+  labels:
+    app: gopher-visitors
+spec:
+  # Daily at 09:00 UTC — pick a time AFTER the VPS's /etc/cron.daily logrotate has
+  # produced yesterday's dated file. Adjust once you confirm the rotation time.
+  schedule: "0 9 * * *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app: gopher-visitors
+        spec:
+          restartPolicy: OnFailure
+          # imagePullSecrets:           # only if the ghcr package is PRIVATE
+          #   - name: ghcr-pull
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            fsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: batch
+              image: ghcr.io/felipedbene/gopher-cta-visitors:latest
+              imagePullPolicy: Always
+              env:
+                - name: GOPHER_SSH
+                  value: "felipe@gopher.debene.dev"
+                - name: LOKI_URL
+                  value: "http://loki-gateway"          # observability ns, port 80
+                - name: SSH_KEY
+                  value: "/keys/id_ed25519"
+                - name: KNOWN_HOSTS
+                  value: "/tmp/known_hosts"
+                # - name: REMOTE_LOG     # default: the VPS's yesterday-dated file
+                #   value: "/var/log/gopher/geomyidae.log-20260625-23"
+                # - name: NO_RDNS        # set "1" if pod egress can't do PTR lookups
+                #   value: "1"
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: "1"
+                  memory: 256Mi
+              volumeMounts:
+                - name: ssh-key
+                  mountPath: /keys
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: ssh-key
+              secret:
+                secretName: gopher-visitors-ssh
+                defaultMode: 0400
+            - name: tmp
+              emptyDir: {}

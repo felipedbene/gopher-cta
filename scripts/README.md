@@ -108,6 +108,17 @@ sum by (verdict) (count_over_time({job="gopher-cta-visitors"} | json [1h]))
 sum by (org) (count_over_time({job="gopher-cta-visitors"} | json | vclass="h" [24h]))
 ```
 
+### Production: in-cluster daily CronJob
+
+For a real daily cadence into a homelab Loki, `visitors-batch.sh` is the
+container entrypoint that chains ssh-cat → enrich → push, tolerating a
+missing/empty dated log (exit 0). It's packaged by `deploy/Dockerfile.visitors`
+(bundles the scripts + the GeoLite2-ASN DB, copied from the build context — no
+runtime license key) and scheduled by `deploy/visitors-cronjob.yaml` (namespace
+`observability`, pushes to the in-cluster `http://loki-gateway`, SSH key from a
+Secret). Full build/secret/apply runbook is in the headers of those two files.
+Loki stays private — nothing is exposed externally.
+
 ### Run it against the live VPS — `visitors-remote.sh`
 
 One-shot wrapper: SSH to the gopher VPS, `cat` the remote geomyidae log, and pipe
