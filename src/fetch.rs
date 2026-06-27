@@ -493,8 +493,9 @@ mod tests {
         assert!(root.contains("[0|FAQ|/faq.txt|server|port]\n"));
         assert!(root.contains("[0|Troubleshooting|/help.txt|server|port]\n"));
         // external links render as gopher type 'h' with a URL: selector
-        assert!(root
-            .contains("[h|Source code (GitHub)|URL:https://github.com/felipedbene/gopher-cta|server|port]\n"));
+        assert!(root.contains(
+            "[h|Source code (GitHub)|URL:https://github.com/felipedbene/gopher-cta|server|port]\n"
+        ));
         assert!(root.contains("|URL:https://tracker.debene.dev/|server|port]\n"));
         // never bake a real host/port into the static index
         assert!(!root.contains("localhost"));
