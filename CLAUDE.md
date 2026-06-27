@@ -105,7 +105,11 @@ Terminal** (his keychain has the working ghcr creds).
 fetcher image through a gitignored `docker-compose.override.yml` (local
 `gopher-cta-local:amd64` build). **The full runbook is
 [`docs/DEPLOY.md`](docs/DEPLOY.md)** — deploy steps, verification, troubleshooting.
-NOT k8s: `deploy/gopher-cta.yaml` exists but is unapplied. Don't look in the cluster.
+The **serving** stack is NOT k8s: `deploy/gopher-cta.yaml` (a would-be k8s
+deploy of the *fetcher*) exists but is unapplied — don't run the gopher server in
+the cluster. **Visitor analytics are a separate, second surface that DOES live in
+k8s** (homelab `observability` namespace) — see "Observability" below; that
+cluster is live, not aspirational.
 
 geomyidae's access log persists to the host at `/var/log/gopher/geomyidae.log`
 (compose wraps it in `sh -c … | tee -a`, bind-mounting `/var/log/gopher`). One-time
@@ -143,6 +147,50 @@ docker run -d --name gopher-cta-fetcher --env-file .env \
 fine, but an arm64 build would be leaner for local. If `public/current` is
 missing, no fetcher is running — that's the usual "0 bytes from gopher" cause.
 
+## Observability — visitor analytics (the OTHER deployment surface)
+
+Distinct from serving. The gopher server runs on the VPS (above); **who visits it**
+is answered by a Grafana dashboard fed from Loki, and that pipeline lives in a
+**homelab k8s cluster** (`observability` namespace). The two surfaces only touch
+via the VPS access log, which the cluster reads over SSH.
+
+**State (verified 2026-06-26, read-only kubectl):** the *dashboard surface* is
+live — the ConfigMap is applied and Grafana renders it from Loki — but the
+*automation is NOT*: the `gopher-visitors-batch` CronJob and its
+`gopher-visitors-ssh` Secret were **never applied** (absent in every namespace).
+The data currently in Loki (~60 events, 06-23→06-26) was a **one-shot manual
+push** from a workstation (`scripts/visitors-to-loki.sh` / `visitors-remote.sh
+--format ndjson | visitors-to-loki.py`). It will NOT refresh on its own — to make
+it a true daily feed, create the SSH Secret and `kubectl apply
+deploy/visitors-cronjob.yaml` (header has the steps).
+
+Flow: VPS `geomyidae.log` → (daily k8s CronJob `gopher-visitors-batch`) ssh-cat
+the *yesterday-dated* rotated log → enrich offline (MaxMind ASN + rDNS +
+human/bot verdict) → push NDJSON to in-cluster Loki (`loki-gateway`,
+`{job="gopher-cta-visitors"}`, fields in the line body, `| json` in LogQL) →
+Grafana `grafana-sc-dashboard` sidecar auto-loads the dashboard ConfigMap.
+
+**Cross-namespace, by design:** Loki and the dashboard ConfigMap live in
+`observability`, but Grafana is `monitoring-grafana` in the **`monitoring`**
+namespace (kube-prometheus-stack). The dashboard only shows up because the sidecar
+watches `grafana_dashboard=1` across *all* namespaces — if it ever silently stops
+updating, suspect the sidecar's namespace scope being narrowed.
+
+- `scripts/` — the enrich+push tooling, **read-only operator tools**, never part
+  of the serving path (`scripts/README.md` is the full guide). `gopher-visitors.py`
+  enriches; `visitors-to-loki.py` pushes; `*-remote.sh`/`*-batch.sh` chain it.
+- `deploy/visitors-cronjob.yaml` — the daily CronJob (ns `observability`;
+  **NOT YET APPLIED** — see State above; image
+  `ghcr.io/felipedbene/gopher-cta-visitors`, built from `deploy/Dockerfile.visitors`,
+  bundling the GeoLite2-ASN DB; SSH key from a Secret). Apply/backfill steps are in
+  the file header.
+- `deploy/grafana-visitors-dashboard.json` — the dashboard (11 panels);
+  `deploy/grafana-visitors-dashboard-configmap.yaml` wraps it as the sidecar-loaded
+  ConfigMap (label `grafana_dashboard=1`, folder "Gopher-CTA"). Edit the JSON, then
+  regenerate the ConfigMap.
+- `GeoLite2-ASN.mmdb` is a gitignored artifact (`*.mmdb`), copied into the image at
+  build time — not in the repo.
+
 ## Conventions
 
 - **One commit per task item**, no monster bundles. Branch off `master` for
@@ -159,7 +207,10 @@ missing, no fetcher is running — that's the usual "0 bytes from gopher" cause.
 
 Live in **production** at `gopher://gopher.debene.dev:70/` (RackNerd, Docker
 Compose). Shipped: geo atlas, AI narration pages, `/landmarks` menu + detail
-pages, ANSI colour variants, and the **map/atlas convergence** below.
+pages, ANSI colour variants, the **map/atlas convergence** below, and a
+**visitor-analytics dashboard** (Grafana/Loki in the homelab cluster; dashboard
+applied & rendering, but the daily-push CronJob is not yet applied — data is
+manual one-shot pushes for now. See "Observability" above).
 
 **Convergence (map.ansi ⇄ atlas.ansi).** Both surfaces draw the same Chicago
 skeleton (coast + Chicago River + 4 expressways) and name the same places with a

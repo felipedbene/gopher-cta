@@ -143,6 +143,19 @@ What "good" looks like:
   **expected and fine**: train pages are ephemeral and fenced from crawlers by
   `robots.txt`.
 
+### Visual validation (client render)
+
+End-to-end proof that the ANSI map renders for a real client, captured from a
+**headless Raspberry Pi Zero 3W** running the Bombadillo gopher client against
+`gopher://gopher.debene.dev:70/0/map.ansi` (framebuffer grab → PNG):
+
+![CTA map.ansi rendered in Bombadillo on a headless Pi Zero 3W](img/map-ansi-pizero3w.png)
+
+Confirms the full overlay survives the wire: cyan Lake Michigan + river, grey
+expressways, white place codes (EVN/SKO/WIL/HYP…), line-coloured trains, and the
+`code -> name` legend — "94 trains plotted of 96 reporting." (Raw `.ppm`
+framebuffer grabs are gitignored; commit the PNG.)
+
 ---
 
 ## Why `/train/` is fenced (crawler policy)
@@ -189,6 +202,51 @@ publish cadence.
   The distro's `/etc/cron.daily/logrotate` then rotates it once per day.
 - **Disk:** snapshots are GC'd to the newest 3 + current, so `public/` stays
   bounded.
+
+---
+
+## Observability — visitor analytics (separate surface)
+
+The serving stack above lives on this VPS. **Who visits it** is a *second,
+independent deployment* on a homelab **k8s** cluster (namespace `observability`),
+which never touches the serving containers — it only reads this VPS's rotated
+access log over SSH.
+
+**Status (verified 2026-06-26):** the dashboard ConfigMap is applied and Grafana
+renders it, but the **CronJob and its SSH Secret are not yet applied** — the data
+in Loki is a one-shot manual push (`scripts/visitors-to-loki.sh`), so it does not
+refresh on its own. Apply the Secret + `deploy/visitors-cronjob.yaml` to turn the
+daily feed on.
+
+Pipeline (daily, once the CronJob is applied): k8s CronJob `gopher-visitors-batch` ssh-`cat`s the
+*yesterday-dated* `geomyidae.log-YYYYMMDD` → enriches offline (MaxMind ASN +
+reverse DNS + human/bot verdict) → pushes NDJSON to in-cluster Loki
+(`{job="gopher-cta-visitors"}`, every field in the line body, query with
+LogQL `| json`) → Grafana's `grafana-sc-dashboard` sidecar auto-loads the
+dashboard ConfigMap into the "Gopher-CTA" folder.
+
+Note the namespaces differ: Loki + the dashboard ConfigMap are in
+`observability`, but Grafana (`monitoring-grafana`, kube-prometheus-stack) is in
+`monitoring`. The dashboard crosses over only because the sidecar watches
+`grafana_dashboard=1` in *all* namespaces — narrowing that scope would silently
+drop it.
+
+This VPS's only role is to **keep the access log readable**: the bind-mounted
+`/var/log/gopher` (see the Logs note above) plus a dedicated, command-restricted
+SSH key in `~/.ssh/authorized_keys`:
+
+```
+command="cat /var/log/gopher/geomyidae.log-*",no-port-forwarding,no-pty <pubkey>
+```
+
+Everything else is in the cluster. Runbooks live with the manifests, not here:
+- `deploy/visitors-cronjob.yaml` header — build/push the `gopher-cta-visitors`
+  image, create the SSH-key Secret, apply, test/backfill.
+- `deploy/grafana-visitors-dashboard-configmap.yaml` header — how the dashboard
+  ConfigMap is provisioned; edit `deploy/grafana-visitors-dashboard.json` then
+  regenerate it.
+- `scripts/README.md` — the enrich/push tooling, including `visitors-remote.sh`
+  for ad-hoc local runs against the live VPS log (no cluster needed).
 
 ---
 

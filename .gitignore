@@ -13,3 +13,6 @@ docker-compose.override.yml
 docker-compose.override.yml
 docker-compose.override.yml
 docker-compose.override.yml
+
+# Raw framebuffer grabs (fbgrab .ppm) — keep the converted .png, not the source
+*.ppm
