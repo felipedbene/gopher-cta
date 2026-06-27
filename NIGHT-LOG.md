@@ -2,6 +2,20 @@
 
 Overnight unsupervised build. Scan this in two minutes; details in README.
 
+## 2026-06-27 — hub cross-link to gopher-blog
+
+Added the one-line hub front-door link from cta (`:70`) to the new phlog hole
+(gopher-blog, `:7071`). `Entry::Link` grew `host`/`port` (`None` → geomyidae's own
+placeholders, byte-identical to before; `Some` → a concrete address the client
+dials directly); `link_remote()` constructs cross-server links; `render_menu_index`
+emits the new columns. `root_menu` gains one `Phlog -- the blog` type-1 entry,
+host/port from `--phlog-link` (default `gopher://gopher.debene.dev:7071`, `none`
+disables). No proxy, no docroot merge — purely a menu link to a sibling port. A
+golden test asserts the phlog build differs from the no-phlog build by exactly
+that one line; all existing links stay byte-identical. `Entry`'s new shape is kept
+in sync with the copy in gopher-blog (the pre-`gopher-core` API). 58 tests + clippy
+`-D warnings` + fmt green.
+
 ## TL;DR
 
 Done and working. A Gopher server in Rust that plots live CTA 'L' trains as a

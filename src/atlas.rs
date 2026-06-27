@@ -556,6 +556,8 @@ impl Atlas {
                 kind: ItemKind::Text,
                 display: format!("{}  {} ({})", m.marker, m.name, m.category),
                 selector: landmark_selector(m.marker),
+                host: None,
+                port: None,
             });
         }
         e
@@ -790,6 +792,7 @@ mod tests {
                     kind: ItemKind::Text,
                     display,
                     selector,
+                    ..
                 } => Some((display.as_str(), selector.as_str())),
                 _ => None,
             })

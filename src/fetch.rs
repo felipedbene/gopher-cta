@@ -48,21 +48,29 @@ fn load_src_archive() -> Option<Vec<u8>> {
     fs::read(&path).ok()
 }
 
+/// Default hub link to the sibling phlog hole (gopher-blog), advertised in the
+/// root menu. Overridable with `--phlog-link`; `none` disables it.
+const DEFAULT_PHLOG_LINK: &str = "gopher://gopher.debene.dev:7071";
+
 /// Fetcher configuration, parsed from CLI args / env.
 pub struct Config {
     pub out: PathBuf,
     pub once: bool,
     pub interval: Duration,
+    /// Hub link to the phlog: `(host, port)`, or `None` to omit the root entry.
+    pub phlog_link: Option<(String, u16)>,
 }
 
 impl Config {
     /// Parse args after the `fetch` subcommand. `--once`, `--interval <secs>`
-    /// (default 30), `--out <dir>` (default `$GOPHER_OUT` or `public`).
+    /// (default 30), `--out <dir>` (default `$GOPHER_OUT` or `public`),
+    /// `--phlog-link <gopher://host[:port]|none>` (default `DEFAULT_PHLOG_LINK`).
     pub fn from_args(args: &[String]) -> Result<Config, String> {
         let mut out =
             PathBuf::from(std::env::var("GOPHER_OUT").unwrap_or_else(|_| "public".into()));
         let mut once = false;
         let mut interval = Duration::from_secs(30);
+        let mut phlog_raw = DEFAULT_PHLOG_LINK.to_string();
 
         let mut it = args.iter();
         while let Some(a) = it.next() {
@@ -74,6 +82,7 @@ impl Config {
                     interval = Duration::from_secs(secs.max(1));
                 }
                 "--out" => out = PathBuf::from(it.next().ok_or("--out needs <dir>")?),
+                "--phlog-link" => phlog_raw = it.next().ok_or("--phlog-link needs <url>")?.clone(),
                 other => return Err(format!("unknown fetch arg: {other}")),
             }
         }
@@ -81,8 +90,33 @@ impl Config {
             out,
             once,
             interval,
+            phlog_link: parse_phlog_link(&phlog_raw)?,
         })
     }
+}
+
+/// Parse `--phlog-link`: a `gopher://host[:port]` URL into `(host, port)` (port
+/// defaults to 70). The literal `none` (or empty) disables the link.
+fn parse_phlog_link(raw: &str) -> Result<Option<(String, u16)>, String> {
+    if raw.is_empty() || raw.eq_ignore_ascii_case("none") {
+        return Ok(None);
+    }
+    let rest = raw
+        .strip_prefix("gopher://")
+        .ok_or_else(|| format!("--phlog-link must start with gopher:// (got {raw})"))?;
+    let authority = rest.split('/').next().unwrap_or(rest);
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((h, p)) => (
+            h.to_string(),
+            p.parse()
+                .map_err(|_| format!("bad port in --phlog-link: {p}"))?,
+        ),
+        None => (authority.to_string(), 70u16),
+    };
+    if host.is_empty() {
+        return Err(format!("--phlog-link has no host: {raw}"));
+    }
+    Ok(Some((host, port)))
 }
 
 /// Run the fetcher: fetch -> publish, once or on an interval.
@@ -116,6 +150,7 @@ pub async fn run<S: TransitSource>(cfg: Config, source: S) -> io::Result<()> {
             Ok(pos) => {
                 // Snapshot the latest narration without blocking the train path.
                 let view = narration.lock().unwrap().clone();
+                let phlog = cfg.phlog_link.as_ref().map(|(h, p)| (h.as_str(), *p));
                 match publish(
                     &cfg.out,
                     &pos,
@@ -125,6 +160,7 @@ pub async fn run<S: TransitSource>(cfg: Config, source: S) -> io::Result<()> {
                     &view,
                     source.name(),
                     src_archive.as_deref(),
+                    phlog,
                 ) {
                     Ok(snap) => eprintln!(
                         "[fetch] published {} ({} trains) -> {}/current",
@@ -157,6 +193,7 @@ fn publish(
     narration: &NarrationView,
     source_name: &str,
     src_archive: Option<&[u8]>,
+    phlog: Option<(&str, u16)>,
 ) -> io::Result<PathBuf> {
     fs::create_dir_all(out)?;
     let ts = SystemTime::now()
@@ -174,6 +211,7 @@ fn publish(
         narration,
         source_name,
         src_archive,
+        phlog,
     )?;
     flip_current(out, &snap)?;
     gc(out, &snap)?;
@@ -210,12 +248,13 @@ fn write_tree(
     narration: &NarrationView,
     source_name: &str,
     src_archive: Option<&[u8]>,
+    phlog: Option<(&str, u16)>,
 ) -> io::Result<()> {
     // Root menu + top-level text pages. Advertise the source tarball only when
     // it's actually written into this snapshot.
     fs::write(
         dir.join("index.gph"),
-        render_menu_index(&render::root_menu(pos, src_archive.is_some())),
+        render_menu_index(&render::root_menu(pos, src_archive.is_some(), phlog)),
     )?;
     if let Some(bytes) = src_archive {
         fs::write(dir.join("src.tar.gz"), bytes)?;
@@ -325,6 +364,8 @@ fn render_menu_index(entries: &[render::Entry]) -> String {
                 kind,
                 display,
                 selector,
+                host,
+                port,
             } => {
                 let t = match kind {
                     ItemKind::Text => '0',
@@ -332,10 +373,19 @@ fn render_menu_index(entries: &[render::Entry]) -> String {
                     ItemKind::Url => 'h',
                     ItemKind::Bin => '9',
                 };
+                // `None` -> the literal placeholder tokens geomyidae fills in;
+                // an explicit host/port (a cross-server hub link) emits as-is.
+                let server = host.as_deref().unwrap_or("server");
+                let port_col = match port {
+                    Some(p) => p.to_string(),
+                    None => "port".to_string(),
+                };
                 out.push_str(&format!(
-                    "[{t}|{}|{}|server|port]\n",
+                    "[{t}|{}|{}|{}|{}]\n",
                     gph_escape(display),
                     gph_escape(selector),
+                    gph_escape(server),
+                    port_col,
                 ));
             }
         }
@@ -428,7 +478,7 @@ mod tests {
         let pos = fixture_positions();
 
         let snap = publish(
-            &tmp.0, &pos, &geo, &atlas, &map_base, &narration, "CTA 'L'", None,
+            &tmp.0, &pos, &geo, &atlas, &map_base, &narration, "CTA 'L'", None, None,
         )
         .unwrap();
 
@@ -522,7 +572,11 @@ mod tests {
 
         // Root: info banner stays a plain (info) line; map is a type-0 link; each
         // line is a type-1 submenu link. server/port are placeholder tokens.
-        let root = render_menu_index(&render::root_menu(&pos, true));
+        let root = render_menu_index(&render::root_menu(
+            &pos,
+            true,
+            Some(("gopher.debene.dev", 7071)),
+        ));
         assert!(root.contains("  gopher-cta : live CTA 'L' trains over Gopher\n"));
         assert!(root.contains("[0|Live train map (braille)|/map.txt|server|port]\n"));
         assert!(root.contains("[0|Geographic atlas (coast + landmarks)|/atlas.txt|server|port]\n"));
@@ -542,7 +596,10 @@ mod tests {
             "[h|Source code (GitHub)|URL:https://github.com/felipedbene/gopher-cta|server|port]\n"
         ));
         assert!(root.contains("|URL:https://tracker.debene.dev/|server|port]\n"));
-        // never bake a real host/port into the static index
+        // the phlog hub link is the ONE link that carries a concrete host/port
+        // (a cross-server menu link); everything else stays placeholder tokens.
+        assert!(root.contains("[1|Phlog -- the blog|/|gopher.debene.dev|7071]\n"));
+        // never bake a real host/port into a *local* (this-tree) link
         assert!(!root.contains("localhost"));
         assert!(!root.contains("\t"));
 
@@ -551,6 +608,43 @@ mod tests {
         assert!(red.contains("[0|Run 801   -> Howard"));
         assert!(red.contains("|/train/801.txt|server|port]\n"));
         assert!(red.contains("Red Line -- live trains\n")); // info header
+    }
+
+    #[test]
+    fn phlog_link_adds_exactly_one_line_and_changes_nothing_else() {
+        // Golden guard: the phlog hub link must be purely additive. Rendering the
+        // root with vs without it may differ by exactly the one new line; every
+        // existing link/info line stays byte-identical (no host/port leakage).
+        let pos = fixture_positions();
+        let without = render_menu_index(&render::root_menu(&pos, true, None));
+        let with = render_menu_index(&render::root_menu(
+            &pos,
+            true,
+            Some(("gopher.debene.dev", 7071)),
+        ));
+        let a: Vec<&str> = without.lines().collect();
+        let b: Vec<&str> = with.lines().collect();
+        assert_eq!(b.len(), a.len() + 1, "phlog must add exactly one line");
+
+        let extra = "[1|Phlog -- the blog|/|gopher.debene.dev|7071]";
+        assert!(b.contains(&extra), "the new line must be the phlog link");
+        let rest: Vec<&str> = b.into_iter().filter(|l| *l != extra).collect();
+        assert_eq!(rest, a, "all pre-existing lines must be byte-identical");
+    }
+
+    #[test]
+    fn phlog_link_parsing() {
+        assert_eq!(
+            parse_phlog_link("gopher://gopher.debene.dev:7071").unwrap(),
+            Some(("gopher.debene.dev".to_string(), 7071))
+        );
+        assert_eq!(
+            parse_phlog_link("gopher://example.org").unwrap(),
+            Some(("example.org".to_string(), 70))
+        );
+        assert_eq!(parse_phlog_link("none").unwrap(), None);
+        assert_eq!(parse_phlog_link("").unwrap(), None);
+        assert!(parse_phlog_link("http://x").is_err());
     }
 
     #[test]
@@ -568,7 +662,7 @@ mod tests {
         let map_base = render::MapBase::build(&geo);
         let narration = NarrationView::default();
         let snap = publish(
-            &tmp.0, &pos, &geo, &atlas, &map_base, &narration, "CTA 'L'", None,
+            &tmp.0, &pos, &geo, &atlas, &map_base, &narration, "CTA 'L'", None, None,
         )
         .unwrap();
 
