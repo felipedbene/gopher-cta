@@ -168,10 +168,11 @@ via the VPS access log, which the cluster reads over SSH.
 **State (2026-06-26):** everything is applied — dashboard ConfigMap (Grafana
 renders it), the `gopher-visitors-batch` CronJob (daily 09:00 UTC), the
 `gopher-visitors-ssh` Secret, and the `ghcr-pull` image-pull Secret; the image is
-**multi-arch** (the cluster has an arm64 node, `orion`). The CronJob does **not
-yet succeed** — its dedicated SSH key's *public* half still needs adding to the
-VPS `~/.ssh/authorized_keys` (`Permission denied (publickey)`). Until then, the
-Loki data is manual one-shot pushes. **Full breadcrumb +the deploy gotchas
+**multi-arch** (the cluster has an arm64 node, `orion`). **Verified working
+end-to-end 2026-06-26** — the SSH key is authorized on the VPS (locked to
+`~/.ssh/gopher-log-reader`, a `cat`-only forced-command wrapper) and a test run
+pushed live-log hits to Loki (`17/17`); the daily 09:00 UTC feed is live.
+**Full breadcrumb +the deploy gotchas
 (multi-arch / private-package pull secret / SSH key) live in
 [`docs/VISITORS.md`](docs/VISITORS.md)** — read it before touching this again.
 
@@ -219,10 +220,10 @@ updating, suspect the sidecar's namespace scope being narrowed.
 Live in **production** at `gopher://gopher.debene.dev:70/` (RackNerd, Docker
 Compose). Shipped: geo atlas, AI narration pages, `/landmarks` menu + detail
 pages, ANSI colour variants, the **map/atlas convergence** below, and a
-**visitor-analytics dashboard** (Grafana/Loki in the homelab cluster; dashboard +
-daily CronJob + secrets all applied, multi-arch image pushed — only the VPS-side
-SSH key authorization is pending before the daily feed goes live. See
-"Observability" above and [`docs/VISITORS.md`](docs/VISITORS.md)).
+**visitor-analytics dashboard** (Grafana/Loki in the homelab cluster; daily
+CronJob live and verified end-to-end — multi-arch image, private-package pull
+secret, VPS SSH key authorized. See "Observability" above and
+[`docs/VISITORS.md`](docs/VISITORS.md)).
 
 **Convergence (map.ansi ⇄ atlas.ansi).** Both surfaces draw the same Chicago
 skeleton (coast + Chicago River + 4 expressways) and name the same places with a

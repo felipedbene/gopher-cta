@@ -212,12 +212,11 @@ independent deployment* on a homelab **k8s** cluster (namespace `observability`)
 which never touches the serving containers — it only reads this VPS's rotated
 access log over SSH.
 
-**Status (2026-06-26):** dashboard ConfigMap, the daily CronJob, the
-`gopher-visitors-ssh` Secret, and the `ghcr-pull` image-pull Secret are all
-applied (image is multi-arch). The CronJob does **not yet succeed** — the
-dedicated SSH key's public half still needs adding to the VPS `authorized_keys`
-(`Permission denied (publickey)`); until then Loki data is manual pushes. Full
-pipeline + deploy gotchas: [`VISITORS.md`](VISITORS.md).
+**Status (2026-06-26):** **live and verified end-to-end.** Dashboard ConfigMap,
+the daily CronJob (09:00 UTC), the `gopher-visitors-ssh` Secret, and the
+`ghcr-pull` image-pull Secret are all applied (image is multi-arch); the SSH key
+is authorized on the VPS (locked to a `cat`-only wrapper) and a test run pushed
+live-log hits to Loki. Full pipeline + deploy gotchas: [`VISITORS.md`](VISITORS.md).
 
 Pipeline (daily, once the CronJob is applied): k8s CronJob `gopher-visitors-batch` ssh-`cat`s the
 *yesterday-dated* `geomyidae.log-YYYYMMDD` → enriches offline (MaxMind ASN +

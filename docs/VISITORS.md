@@ -36,10 +36,13 @@ is docs/DEPLOY.md; this is the *analytics* one.)
   in `observability` and is loaded cross-namespace by the `grafana-sc-dashboard`
   sidecar (watches `grafana_dashboard=1` everywhere).
 
-**Scheduler status (2026-06-26):** CronJob is deployed but **not yet succeeding** —
-the dedicated key's public half isn't in the VPS `authorized_keys` yet
-(`Permission denied (publickey)`). Until it is, Loki data is from manual pushes.
-So today: shipping is **by hand**; the timer goes live the moment the key is added.
+**Scheduler status (2026-06-26):** **live.** The key is authorized on the VPS,
+locked to `~/.ssh/gopher-log-reader` (a forced-command wrapper that only `cat`s
+the gopher logs), and an end-to-end run pushed live-log hits to Loki
+(`pushed 17/17`). Shipping is now **on the timer** (daily 09:00 UTC); manual runs
+still work for backfill. Note: a daily run can legitimately push `0 entries` when
+that day's dated log holds only operator-IP (`73.211.52.98`) hits — those are
+excluded by design (see caveat 2), it is **not** a rotation failure.
 
 ## vclass / verdict / kind
 - **verdict** (per IP): `HUMAN`, `LIKELY HUMAN`, `BOT/CRAWLER`, `LIKELY BOT`, `UNKNOWN`.
