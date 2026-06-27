@@ -284,6 +284,7 @@ fn render_menu_index(entries: &[render::Entry]) -> String {
                 let t = match kind {
                     ItemKind::Text => '0',
                     ItemKind::Menu => '1',
+                    ItemKind::Url => 'h',
                 };
                 out.push_str(&format!(
                     "[{t}|{}|{}|server|port]\n",
@@ -467,6 +468,10 @@ mod tests {
         assert!(root.contains("[0|SITREP (AI alerts summary)|/sitrep.txt|server|port]\n"));
         assert!(root.contains("[0|Event advisory (AI)|/events.txt|server|port]\n"));
         assert!(root.contains("[1|Red      (5 running)|/red|server|port]\n"));
+        // external links render as gopher type 'h' with a URL: selector
+        assert!(root
+            .contains("[h|Source code (GitHub)|URL:https://github.com/felipedbene/gopher-cta|server|port]\n"));
+        assert!(root.contains("|URL:https://tracker.debene.dev/|server|port]\n"));
         // never bake a real host/port into the static index
         assert!(!root.contains("localhost"));
         assert!(!root.contains("\t"));

@@ -80,6 +80,7 @@ pub fn cardinal8(deg: u16) -> &'static str {
 pub enum ItemKind {
     Text, // gopher type 0
     Menu, // gopher type 1
+    Url,  // gopher type h -- external link, selector is `URL:<addr>`
 }
 
 /// One line of a menu: either an info line (not selectable) or a link.
@@ -153,6 +154,16 @@ pub fn root_menu(pos: &Positions) -> Vec<Entry> {
     }
     e.push(info(""));
     e.push(link(ItemKind::Text, "About this service", "/about.txt"));
+    e.push(link(
+        ItemKind::Url,
+        "Source code (GitHub)",
+        "URL:https://github.com/felipedbene/gopher-cta",
+    ));
+    e.push(link(
+        ItemKind::Url,
+        "CTA tracker -- the web original (tracker.debene.dev)",
+        "URL:https://tracker.debene.dev/",
+    ));
     e.push(info(""));
     e.push(info(
         "Data: CTA Train Tracker. Not affiliated with the CTA.",
@@ -575,12 +586,32 @@ pub fn about_page() -> String {
     format!(
         "gopher-cta\n\
          ==========\n\n\
-         Live CTA 'L' train positions as a Unicode-braille geographic map, plus\n\
-         per-line listings and per-train detail pages. Rendered to static gopher\n\
-         files by a fetcher and served by a gopher daemon.\n\n\
-         Canvas: {wc}x{hc} braille cells ({wp}x{hp} pixels).\n\
-         Projection: km-based bbox map, cos(lat) longitude shrink + terminal\n\
-         cell-aspect correction, so the city renders north-up and undistorted.\n\n\
+         Live CTA 'L' train positions, rendered as a Unicode-braille map of\n\
+         Chicago and served over Gopher -- the 1991 protocol, no HTTP, no\n\
+         JavaScript.\n\n\
+         What's here:\n\
+         \x20 * a braille train map (plain), and an ANSI colour version overlaying\n\
+         \x20   the Chicago coastline, river, expressways and landmark codes under\n\
+         \x20   the trains\n\
+         \x20 * a matching char-cell geographic atlas (atlas.ansi)\n\
+         \x20 * per-line listings and a detail page for every running train\n\
+         \x20 * Chicago landmarks, each with its own page\n\
+         \x20 * AI narration panels -- dispatch, a per-station SITREP, event\n\
+         \x20   advisories (fed by the cta-track-grid Worker; see below)\n\n\
+         How it works:\n\
+         \x20 A Rust fetcher polls the CTA Train Tracker API, renders a complete\n\
+         \x20 static gopher tree each cycle, and atomically swaps it into place;\n\
+         \x20 the geomyidae daemon serves it. One km-based projection (cos(lat)\n\
+         \x20 longitude shrink + terminal cell-aspect correction) draws the city\n\
+         \x20 north-up and undistorted. It cross-compiles to big-endian PowerPC --\n\
+         \x20 it runs on a PowerMac G5.\n\n\
+         \x20 Canvas: {wc}x{hc} braille cells ({wp}x{hp} pixels).\n\n\
+         Source:  https://github.com/felipedbene/gopher-cta\n\
+         Live:    gopher://gopher.debene.dev:70/\n\n\
+         Part of a small CTA family. The flagship is cta-track-grid -- a\n\
+         real-time web tracker whose Worker also powers the AI panels above:\n\
+         \x20 https://tracker.debene.dev/\n\
+         \x20 https://github.com/felipedbene/cta-track-grid\n\n\
          Built in Rust. Data from the CTA Train Tracker API.\n\
          Not affiliated with the Chicago Transit Authority.\n",
         wc = g.wc,
