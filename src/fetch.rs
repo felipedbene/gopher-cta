@@ -35,6 +35,19 @@ const CAPS_TXT: &[u8] = include_bytes!("../caps.txt");
 /// `robots.txt` selector; written into every snapshot so it survives republish.
 const ROBOTS_TXT: &[u8] = include_bytes!("../robots.txt");
 
+/// Default path of the source tarball baked into the image (see `Dockerfile`).
+/// Overridable with `GOPHER_SRC_ARCHIVE`. Served over gopher as `/src.tar.gz`
+/// when present; a bare `cargo run` (no image) simply omits the link. NOTE: the
+/// archive deliberately excludes the MaxMind `.mmdb` (not redistributable).
+const SRC_ARCHIVE_PATH: &str = "/usr/local/share/gopher-cta/src.tar.gz";
+
+/// Load the served source tarball, if one was baked into the image. `None` (no
+/// `/src.tar.gz`, no menu link) when the file is absent or unreadable.
+fn load_src_archive() -> Option<Vec<u8>> {
+    let path = std::env::var("GOPHER_SRC_ARCHIVE").unwrap_or_else(|_| SRC_ARCHIVE_PATH.into());
+    fs::read(&path).ok()
+}
+
 /// Fetcher configuration, parsed from CLI args / env.
 pub struct Config {
     pub out: PathBuf,
@@ -84,6 +97,11 @@ pub async fn run<S: TransitSource>(cfg: Config, source: S) -> io::Result<()> {
     // AI narrative panels poll the Worker on a slow cadence in the background;
     // each publish reads a snapshot and never blocks on (or depends on) them.
     let narration = narration::spawn();
+    // Source tarball baked into the image (Dockerfile), or None for a bare run.
+    let src_archive = load_src_archive();
+    if src_archive.is_some() {
+        eprintln!("[fetch] source archive present -> serving /src.tar.gz");
+    }
     eprintln!(
         "[fetch] out={} mode={}",
         cfg.out.display(),
@@ -106,6 +124,7 @@ pub async fn run<S: TransitSource>(cfg: Config, source: S) -> io::Result<()> {
                     &map_base,
                     &view,
                     source.name(),
+                    src_archive.as_deref(),
                 ) {
                     Ok(snap) => eprintln!(
                         "[fetch] published {} ({} trains) -> {}/current",
@@ -128,6 +147,7 @@ pub async fn run<S: TransitSource>(cfg: Config, source: S) -> io::Result<()> {
 
 /// Render the tree into a fresh `out-<ts>/`, then atomically flip `current` and
 /// GC old snapshots. Returns the snapshot directory.
+#[allow(clippy::too_many_arguments)] // render plumbing; each input is distinct
 fn publish(
     out: &Path,
     pos: &Positions,
@@ -136,6 +156,7 @@ fn publish(
     map_base: &render::MapBase,
     narration: &NarrationView,
     source_name: &str,
+    src_archive: Option<&[u8]>,
 ) -> io::Result<PathBuf> {
     fs::create_dir_all(out)?;
     let ts = SystemTime::now()
@@ -144,7 +165,16 @@ fn publish(
         .as_nanos();
     let snap = out.join(format!("out-{ts}"));
     fs::create_dir_all(&snap)?;
-    write_tree(&snap, pos, geo, atlas, map_base, narration, source_name)?;
+    write_tree(
+        &snap,
+        pos,
+        geo,
+        atlas,
+        map_base,
+        narration,
+        source_name,
+        src_archive,
+    )?;
     flip_current(out, &snap)?;
     gc(out, &snap)?;
     Ok(snap)
@@ -163,12 +193,14 @@ fn publish(
 ///   faq.txt              FAQ (rendering questions)
 ///   help.txt             troubleshooting (actionable fixes)
 ///   dig.txt              hidden easter egg — written but linked from no menu
+///   src.tar.gz           full source tarball (type 9), when baked into the image
 ///   caps.txt             GopherII caps policy file (verbatim, CRLF)
 ///   robots.txt           crawler policy (disallows ephemeral /train/ pages)
 ///   <line>/index.gph     per-line menu, each train a drill-down link
 ///   train/<run>.txt      per-train detail page (text)
 ///   landmarks/index.gph  type-1 menu of Chicago landmarks
 ///   landmark/<X>.txt     per-landmark detail page (keyed by marker letter)
+#[allow(clippy::too_many_arguments)] // render plumbing; each input is distinct
 fn write_tree(
     dir: &Path,
     pos: &Positions,
@@ -177,12 +209,17 @@ fn write_tree(
     map_base: &render::MapBase,
     narration: &NarrationView,
     source_name: &str,
+    src_archive: Option<&[u8]>,
 ) -> io::Result<()> {
-    // Root menu + top-level text pages.
+    // Root menu + top-level text pages. Advertise the source tarball only when
+    // it's actually written into this snapshot.
     fs::write(
         dir.join("index.gph"),
-        render_menu_index(&render::root_menu(pos)),
+        render_menu_index(&render::root_menu(pos, src_archive.is_some())),
     )?;
+    if let Some(bytes) = src_archive {
+        fs::write(dir.join("src.tar.gz"), bytes)?;
+    }
     fs::write(dir.join("map.txt"), render::map_page(pos, geo, source_name))?;
     fs::write(
         dir.join("map.ansi"),
@@ -293,6 +330,7 @@ fn render_menu_index(entries: &[render::Entry]) -> String {
                     ItemKind::Text => '0',
                     ItemKind::Menu => '1',
                     ItemKind::Url => 'h',
+                    ItemKind::Bin => '9',
                 };
                 out.push_str(&format!(
                     "[{t}|{}|{}|server|port]\n",
@@ -389,7 +427,10 @@ mod tests {
         let narration = NarrationView::default();
         let pos = fixture_positions();
 
-        let snap = publish(&tmp.0, &pos, &geo, &atlas, &map_base, &narration, "CTA 'L'").unwrap();
+        let snap = publish(
+            &tmp.0, &pos, &geo, &atlas, &map_base, &narration, "CTA 'L'", None,
+        )
+        .unwrap();
 
         // current is a symlink to a relative out-* target
         let link = tmp.0.join("current");
@@ -481,7 +522,7 @@ mod tests {
 
         // Root: info banner stays a plain (info) line; map is a type-0 link; each
         // line is a type-1 submenu link. server/port are placeholder tokens.
-        let root = render_menu_index(&render::root_menu(&pos));
+        let root = render_menu_index(&render::root_menu(&pos, true));
         assert!(root.contains("  gopher-cta : live CTA 'L' trains over Gopher\n"));
         assert!(root.contains("[0|Live train map (braille)|/map.txt|server|port]\n"));
         assert!(root.contains("[0|Geographic atlas (coast + landmarks)|/atlas.txt|server|port]\n"));
@@ -492,6 +533,10 @@ mod tests {
         assert!(root.contains("[1|Red      (5 running)|/red|server|port]\n"));
         assert!(root.contains("[0|FAQ|/faq.txt|server|port]\n"));
         assert!(root.contains("[0|Troubleshooting|/help.txt|server|port]\n"));
+        // source tarball advertised as gopher type 9 (binary) when available
+        assert!(
+            root.contains("[9|Source code (tar.gz, fetch over gopher)|/src.tar.gz|server|port]\n")
+        );
         // external links render as gopher type 'h' with a URL: selector
         assert!(root.contains(
             "[h|Source code (GitHub)|URL:https://github.com/felipedbene/gopher-cta|server|port]\n"
@@ -522,7 +567,10 @@ mod tests {
         let atlas = Atlas::build(geo);
         let map_base = render::MapBase::build(&geo);
         let narration = NarrationView::default();
-        let snap = publish(&tmp.0, &pos, &geo, &atlas, &map_base, &narration, "CTA 'L'").unwrap();
+        let snap = publish(
+            &tmp.0, &pos, &geo, &atlas, &map_base, &narration, "CTA 'L'", None,
+        )
+        .unwrap();
 
         // root index links to the map, the atlas, and the red submenu
         let root = fs::read_to_string(snap.join("index.gph")).unwrap();

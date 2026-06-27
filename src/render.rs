@@ -83,6 +83,7 @@ pub enum ItemKind {
     Text, // gopher type 0
     Menu, // gopher type 1
     Url,  // gopher type h -- external link, selector is `URL:<addr>`
+    Bin,  // gopher type 9 -- binary download (e.g. the source tarball)
 }
 
 /// One line of a menu: either an info line (not selectable) or a link.
@@ -120,7 +121,7 @@ pub fn line_selector(line: &str) -> String {
 
 /// The root menu: a link to the map, one entry per line (with a live count), and
 /// an about link. Drill-down begins here.
-pub fn root_menu(pos: &Positions) -> Vec<Entry> {
+pub fn root_menu(pos: &Positions, src_available: bool) -> Vec<Entry> {
     let mut e = vec![
         info("==============================================="),
         info("  gopher-cta : live CTA 'L' trains over Gopher"),
@@ -158,6 +159,16 @@ pub fn root_menu(pos: &Positions) -> Vec<Entry> {
     e.push(link(ItemKind::Text, "About this service", "/about.txt"));
     e.push(link(ItemKind::Text, "FAQ", "/faq.txt"));
     e.push(link(ItemKind::Text, "Troubleshooting", "/help.txt"));
+    // Served source tarball (gopher type 9). Only advertised when the archive is
+    // actually present in the snapshot (baked into the image; absent in a bare
+    // `cargo run`), so the link never dangles.
+    if src_available {
+        e.push(link(
+            ItemKind::Bin,
+            "Source code (tar.gz, fetch over gopher)",
+            "/src.tar.gz",
+        ));
+    }
     e.push(link(
         ItemKind::Url,
         "Source code (GitHub)",
@@ -749,7 +760,7 @@ mod tests {
 
     #[test]
     fn root_menu_links_map_and_each_line() {
-        let entries = root_menu(&fixture_positions());
+        let entries = root_menu(&fixture_positions(), false);
         // map link
         assert!(entries.iter().any(|e| matches!(e,
             Entry::Link { kind: ItemKind::Text, selector, .. } if selector == "/map.txt")));

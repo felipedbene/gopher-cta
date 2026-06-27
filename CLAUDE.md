@@ -28,6 +28,7 @@ geomyidae prepends the gopher type, so browse `gopher://host:7070/0/map.txt`
 | `about.txt` | about (ASCII 'L'-car masthead, surfaces + cta-track-grid family) |
 | `faq.txt` / `help.txt` | FAQ (rendering Qs) + troubleshooting (font/UTF-8/ANSI fixes) |
 | `dig.txt` | **hidden** easter egg — written into the tree, linked from no menu; FAQ hints at it. ASCII gopher + Floodgap/SDF/family cross-ref |
+| `src.tar.gz` | full source tarball (type-9 binary), baked into the image by the `Dockerfile` and served at `/src.tar.gz`. **Excludes the non-redistributable GeoLite2 `.mmdb`** (build fails if one leaks in). Absent in a bare `cargo run` (link auto-omitted) |
 | `<line>/index.gph` | per-line menu (`red blue brn g org p pink y`) |
 | `train/<run>.txt` | per-train detail |
 
