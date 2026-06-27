@@ -337,6 +337,38 @@ gopher's port 70 to the unprivileged container port 7070. Set geomyidae's
 `-h <host>` to the address clients reach it on so the `.gph` `server` placeholder
 resolves correctly.
 
+## Visitor analytics (optional)
+
+A separate, read-only toolchain answers "who's visiting the gopher server?" — it
+enriches geomyidae's access log (ASN/org, reverse DNS, a transparent human/bot
+verdict) and can ship the result to Loki for a Grafana dashboard. It's not part of
+the serving path; the full pipeline + deploy notes live in
+[`docs/VISITORS.md`](docs/VISITORS.md) and [`scripts/README.md`](scripts/README.md).
+
+### Getting the GeoLite2-ASN database (one-time)
+
+ASN/org enrichment reads MaxMind's **GeoLite2-ASN** database. It's free but **not
+redistributable**, so it's gitignored, never baked into the published image, and
+excluded from the source tarball served at `/src.tar.gz` (the build fails if it
+ever leaks in) — you bring your own copy:
+
+1. Create a free MaxMind account and generate a **license key**:
+   <https://www.maxmind.com/en/geolite2/signup> → then *Account → Manage License Keys*.
+2. Download the database once (caches to `~/.cache/gopher-cta/GeoLite2-ASN.mmdb`):
+
+   ```sh
+   pip install maxminddb
+   export MAXMIND_LICENSE_KEY=xxxxxxxxxxxxxxxx
+   python3 scripts/gopher-visitors.py --download-asn
+   ```
+
+   Already have a copy? Point at it with `--asn-db /path/to/GeoLite2-ASN.mmdb` (or
+   set `$GEOLITE2_ASN_DB`). For the in-cluster batch image, stage it in the build
+   context first: `cp ~/.cache/gopher-cta/GeoLite2-ASN.mmdb deploy/`.
+
+Without the DB the analyzer still runs — it falls back to reverse-DNS + timing
+heuristics and says so in its header.
+
 ## Scope
 
 CTA only this build. No Metra/GTFS-RT (stub), no auth, no HTTP frontend, no
