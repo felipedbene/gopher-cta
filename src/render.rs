@@ -77,65 +77,12 @@ pub fn cardinal8(deg: u16) -> &'static str {
     PTS[(((deg % 360) as u32 + 22) / 45 % 8) as usize]
 }
 
-/// Gopher item type for a link. Daemon-agnostic; serialized per-daemon elsewhere.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ItemKind {
-    Text, // gopher type 0
-    Menu, // gopher type 1
-    Url,  // gopher type h -- external link, selector is `URL:<addr>`
-    Bin,  // gopher type 9 -- binary download (e.g. the source tarball)
-}
-
-/// One line of a menu: either an info line (not selectable) or a link.
-///
-/// `host`/`port` are normally `None` — the serializer then emits geomyidae's own
-/// host/port placeholders, so the tree stays address-agnostic. They are `Some`
-/// only for cross-server links (e.g. the hub link to the phlog hole), which must
-/// advertise a concrete address the client dials directly.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Entry {
-    Info(String),
-    Link {
-        kind: ItemKind,
-        display: String,
-        selector: String,
-        host: Option<String>,
-        port: Option<u16>,
-    },
-}
-
-fn info(s: impl Into<String>) -> Entry {
-    Entry::Info(s.into())
-}
-
-/// A link served from this tree (host/port default to the daemon's own).
-fn link(kind: ItemKind, display: impl Into<String>, selector: impl Into<String>) -> Entry {
-    Entry::Link {
-        kind,
-        display: display.into(),
-        selector: selector.into(),
-        host: None,
-        port: None,
-    }
-}
-
-/// A link to a *different* gopher server: the `.gph` line advertises this
-/// host/port so the client opens a fresh connection there.
-fn link_remote(
-    kind: ItemKind,
-    display: impl Into<String>,
-    selector: impl Into<String>,
-    host: impl Into<String>,
-    port: u16,
-) -> Entry {
-    Entry::Link {
-        kind,
-        display: display.into(),
-        selector: selector.into(),
-        host: Some(host.into()),
-        port: Some(port),
-    }
-}
+// The menu model now lives in the shared `gopher-core` crate. `Entry`/`ItemKind`
+// are re-exported (atlas.rs and fetch.rs refer to `render::Entry` etc.); the
+// `info`/`link` builders are used internally here. Cross-server links use
+// `Entry::with_host` (replaces the old `link_remote`).
+use gopher_core::{info, link};
+pub use gopher_core::{Entry, ItemKind};
 
 /// Selector (served path) for a train's detail page.
 pub fn train_selector(run: &str) -> String {
@@ -212,13 +159,7 @@ pub fn root_menu(pos: &Positions, src_available: bool, phlog: Option<(&str, u16)
     // Hub link to the sibling phlog hole (gopher-blog). A cross-server type-1
     // link: the client dials the advertised host/port directly; :70 never proxies.
     if let Some((host, port)) = phlog {
-        e.push(link_remote(
-            ItemKind::Menu,
-            "Phlog -- the blog",
-            "/",
-            host,
-            port,
-        ));
+        e.push(link(ItemKind::Menu, "Phlog -- the blog", "/").with_host(host, port));
     }
     e.push(info(""));
     e.push(info(

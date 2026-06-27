@@ -12,7 +12,6 @@
 
 use std::fs;
 use std::io;
-use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -213,8 +212,8 @@ fn publish(
         src_archive,
         phlog,
     )?;
-    flip_current(out, &snap)?;
-    gc(out, &snap)?;
+    gopher_core::flip_current(out, &snap)?;
+    gopher_core::gc(out, KEEP_SNAPSHOTS)?;
     Ok(snap)
 }
 
@@ -254,7 +253,7 @@ fn write_tree(
     // it's actually written into this snapshot.
     fs::write(
         dir.join("index.gph"),
-        render_menu_index(&render::root_menu(pos, src_archive.is_some(), phlog)),
+        gopher_core::render_menu_index(&render::root_menu(pos, src_archive.is_some(), phlog)),
     )?;
     if let Some(bytes) = src_archive {
         fs::write(dir.join("src.tar.gz"), bytes)?;
@@ -301,7 +300,7 @@ fn write_tree(
         fs::create_dir_all(&ldir)?;
         fs::write(
             ldir.join("index.gph"),
-            render_menu_index(&render::line_menu(pos, line)),
+            gopher_core::render_menu_index(&render::line_menu(pos, line)),
         )?;
     }
 
@@ -325,7 +324,7 @@ fn write_tree(
     fs::create_dir_all(&lmdir)?;
     fs::write(
         lmdir.join("index.gph"),
-        render_menu_index(&atlas.landmarks_menu()),
+        gopher_core::render_menu_index(&atlas.landmarks_menu()),
     )?;
     let mdir = dir.join("landmark");
     fs::create_dir_all(&mdir)?;
@@ -338,102 +337,10 @@ fn write_tree(
     Ok(())
 }
 
-/// The single daemon-specific function: serialize a daemon-agnostic menu
-/// ([`render::Entry`] list) into a geomyidae `.gph` index. **To target a
-/// different daemon (e.g. Gophernicus `gophermap`), rewrite only this.**
-///
-/// Format (confirmed against geomyidae(8) and the phd implementation): a link is
-/// `[<type>|<name>|<selector>|server|port]`; geomyidae substitutes the literal
-/// tokens `server`/`port` with its own host/port at serve time, so the files
-/// stay host/port-agnostic. Any line not starting with `[` is an info (i) line.
-fn render_menu_index(entries: &[render::Entry]) -> String {
-    use render::{Entry, ItemKind};
-    let mut out = String::new();
-    for e in entries {
-        match e {
-            Entry::Info(s) => {
-                // Info text that happens to start with '[' would be mis-parsed as
-                // a link; a leading space keeps it an info line.
-                if s.starts_with('[') {
-                    out.push(' ');
-                }
-                out.push_str(s);
-                out.push('\n');
-            }
-            Entry::Link {
-                kind,
-                display,
-                selector,
-                host,
-                port,
-            } => {
-                let t = match kind {
-                    ItemKind::Text => '0',
-                    ItemKind::Menu => '1',
-                    ItemKind::Url => 'h',
-                    ItemKind::Bin => '9',
-                };
-                // `None` -> the literal placeholder tokens geomyidae fills in;
-                // an explicit host/port (a cross-server hub link) emits as-is.
-                let server = host.as_deref().unwrap_or("server");
-                let port_col = match port {
-                    Some(p) => p.to_string(),
-                    None => "port".to_string(),
-                };
-                out.push_str(&format!(
-                    "[{t}|{}|{}|{}|{}]\n",
-                    gph_escape(display),
-                    gph_escape(selector),
-                    gph_escape(server),
-                    port_col,
-                ));
-            }
-        }
-    }
-    out
-}
-
-/// Escape the `.gph` field separator `|` within a field (geomyidae uses `\|`).
-fn gph_escape(s: &str) -> String {
-    s.replace('|', "\\|")
-}
-
-/// Atomically point `current` at `snap`: write a temp symlink then rename it over
-/// `current`. rename(2) is atomic, so a reader resolves either the old target or
-/// the new one — never a missing/half-built link. The link is relative
-/// (`current -> out-<ts>`) so it stays valid under any mount path.
-fn flip_current(out: &Path, snap: &Path) -> io::Result<()> {
-    let target = snap.file_name().expect("snapshot dir has a file name");
-    let tmp = out.join(format!(".current.tmp.{}", std::process::id()));
-    let _ = fs::remove_file(&tmp);
-    symlink(target, &tmp)?;
-    fs::rename(&tmp, out.join("current"))
-}
-
-/// Remove old `out-*` snapshots, keeping the newest [`KEEP_SNAPSHOTS`] and never
-/// the one just published.
-fn gc(out: &Path, keep: &Path) -> io::Result<()> {
-    let mut snaps: Vec<PathBuf> = fs::read_dir(out)?
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| {
-            p.is_dir()
-                && p.file_name()
-                    .and_then(|n| n.to_str())
-                    .is_some_and(|n| n.starts_with("out-"))
-        })
-        .collect();
-    snaps.sort(); // nanosecond names sort chronologically; newest last
-    let n = snaps.len();
-    let keep_name = keep.file_name();
-    for (i, p) in snaps.iter().enumerate() {
-        let is_recent = i + KEEP_SNAPSHOTS >= n;
-        let is_current = p.file_name() == keep_name;
-        if !is_recent && !is_current {
-            let _ = fs::remove_dir_all(p);
-        }
-    }
-    Ok(())
-}
+// The `.gph` serializer (`render_menu_index`) and the atomic-publish primitives
+// (`flip_current`, `gc`) now live in `gopher-core`. cta keeps its own snapshot
+// orchestration (`publish`/`write_tree` above) and calls those primitives,
+// passing its `KEEP_SNAPSHOTS` const into `gopher_core::gc`.
 
 #[cfg(test)]
 mod tests {
@@ -535,36 +442,7 @@ mod tests {
             .contains("event advisory"));
     }
 
-    #[test]
-    fn gc_keeps_recent_plus_current_and_drops_the_rest() {
-        let tmp = TmpDir::new("gc");
-        // Six chronological snapshots: out-000 .. out-005
-        let mut dirs = Vec::new();
-        for i in 0..6 {
-            let d = tmp.0.join(format!("out-{i:03}"));
-            fs::create_dir_all(&d).unwrap();
-            dirs.push(d);
-        }
-        // Pretend out-000 is the current target (oldest) — must be retained even
-        // though it's not among the newest KEEP_SNAPSHOTS.
-        gc(&tmp.0, &dirs[0]).unwrap();
-
-        let remaining: std::collections::BTreeSet<String> = fs::read_dir(&tmp.0)
-            .unwrap()
-            .map(|e| e.unwrap().file_name().into_string().unwrap())
-            .filter(|n| n.starts_with("out-"))
-            .collect();
-        // newest 3 (003,004,005) + the protected current (000) = 4
-        assert_eq!(
-            remaining.len(),
-            KEEP_SNAPSHOTS + 1,
-            "remaining: {remaining:?}"
-        );
-        assert!(remaining.contains("out-000")); // current protected
-        assert!(remaining.contains("out-005")); // newest
-        assert!(!remaining.contains("out-001")); // dropped
-        assert!(!remaining.contains("out-002")); // dropped
-    }
+    // (gc + .gph-escape tests moved to gopher-core, which owns those primitives.)
 
     #[test]
     fn menu_index_renders_geomyidae_gph() {
@@ -572,7 +450,7 @@ mod tests {
 
         // Root: info banner stays a plain (info) line; map is a type-0 link; each
         // line is a type-1 submenu link. server/port are placeholder tokens.
-        let root = render_menu_index(&render::root_menu(
+        let root = gopher_core::render_menu_index(&render::root_menu(
             &pos,
             true,
             Some(("gopher.debene.dev", 7071)),
@@ -604,7 +482,7 @@ mod tests {
         assert!(!root.contains("\t"));
 
         // Per-line: each train is a type-0 link to its detail page.
-        let red = render_menu_index(&render::line_menu(&pos, "red"));
+        let red = gopher_core::render_menu_index(&render::line_menu(&pos, "red"));
         assert!(red.contains("[0|Run 801   -> Howard"));
         assert!(red.contains("|/train/801.txt|server|port]\n"));
         assert!(red.contains("Red Line -- live trains\n")); // info header
@@ -616,8 +494,8 @@ mod tests {
         // root with vs without it may differ by exactly the one new line; every
         // existing link/info line stays byte-identical (no host/port leakage).
         let pos = fixture_positions();
-        let without = render_menu_index(&render::root_menu(&pos, true, None));
-        let with = render_menu_index(&render::root_menu(
+        let without = gopher_core::render_menu_index(&render::root_menu(&pos, true, None));
+        let with = gopher_core::render_menu_index(&render::root_menu(
             &pos,
             true,
             Some(("gopher.debene.dev", 7071)),
@@ -645,12 +523,6 @@ mod tests {
         assert_eq!(parse_phlog_link("none").unwrap(), None);
         assert_eq!(parse_phlog_link("").unwrap(), None);
         assert!(parse_phlog_link("http://x").is_err());
-    }
-
-    #[test]
-    fn gph_escape_escapes_pipe() {
-        assert_eq!(gph_escape("a|b"), "a\\|b");
-        assert_eq!(gph_escape("plain"), "plain");
     }
 
     #[test]

@@ -17,6 +17,11 @@ tls-rustls = ["reqwest/rustls-tls"]
 tls-native = ["reqwest/native-tls", "dep:openssl"]
 
 [dependencies]
+# The shared gopher spine (menu model, .gph serializer, atomic publish primitives).
+# Pinned by tag so the image build resolves it with only this repo checked out,
+# and so cta bumps core on its own schedule (a core change never auto-propagates
+# into this live build).
+gopher-core = { git = "https://github.com/felipedbene/gopher-core", tag = "v0.1.0" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
 serde = { version = "1", features = ["derive"] }
