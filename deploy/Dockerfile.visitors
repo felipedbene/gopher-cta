@@ -8,11 +8,16 @@
 # committed artifact). Stage it before building:
 #
 #   cp ~/.cache/gopher-cta/GeoLite2-ASN.mmdb deploy/GeoLite2-ASN.mmdb
-#   docker buildx build --platform linux/amd64 \
+#   # MUST be multi-arch: the cluster has amd64 nodes AND an arm64 node (orion),
+#   # so a CronJob pod can land on either. amd64-only -> ImagePullBackOff on orion.
+#   # buildx multi-arch can't --load; build+push in one step:
+#   docker buildx build --platform linux/amd64,linux/arm64 \
 #     -f deploy/Dockerfile.visitors \
-#     -t ghcr.io/felipedbene/gopher-cta-visitors:latest --load .
-#   # then felipe pushes (Claude can't push to ghcr):
-#   docker push ghcr.io/felipedbene/gopher-cta-visitors:latest
+#     -t ghcr.io/felipedbene/gopher-cta-visitors:latest --push .
+#   # The package is PRIVATE -> the CronJob pulls via the `ghcr-pull` Secret
+#   # (see deploy/visitors-cronjob.yaml). Push auth: a gh token with write:packages
+#   # (gh auth refresh -s write:packages) + a throwaway DOCKER_CONFIG — see
+#   # CLAUDE.md "Pushing to ghcr from Claude Code".
 FROM python:3.12-slim
 
 RUN apt-get update \

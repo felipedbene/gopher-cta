@@ -93,12 +93,23 @@ Cross-build for the cluster (mostly amd64 nodes):
 docker buildx build --platform linux/amd64 -t ghcr.io/felipedbene/gopher-cta:latest --load .
 ```
 
-**Pushing to ghcr from Claude Code does NOT work — the human must push.** The
-Bash tool runs in a non-interactive macOS security session that cannot read the
-`osxkeychain` credStore even after `security unlock-keychain` (error: "session
-does not allow user interaction"), and `gh auth token` lacks `write:packages`.
-So: **Claude builds + tags the image; felipe runs `docker push …` in his own
-Terminal** (his keychain has the working ghcr creds).
+**Pushing to ghcr from Claude Code** — the default keychain path does NOT work:
+the Bash tool runs in a non-interactive macOS security session that cannot read
+the `osxkeychain` credStore even after `security unlock-keychain` (error:
+"session does not allow user interaction"). **But Claude CAN push (verified
+2026-06-26)** by bypassing the keychain with a throwaway docker config, *if* the
+`gh` token carries `write:packages` (one-time `gh auth refresh -h github.com -s
+write:packages`):
+
+```sh
+export DOCKER_CONFIG="$(mktemp -d)"
+ln -s ~/.docker/cli-plugins "$DOCKER_CONFIG/cli-plugins"   # so `docker buildx` is still found
+gh auth token | docker --config "$DOCKER_CONFIG" login ghcr.io -u felipedbene --password-stdin
+docker --config "$DOCKER_CONFIG" buildx build --platform linux/amd64,linux/arm64 -t <img> --push .
+```
+
+The `--config` dir holds the auth as plaintext base64 (no credStore), so the push
+authenticates. (Fallback: felipe pushes from his own Terminal, keychain creds.)
 
 **PRODUCTION is the RackNerd VPS** (`gopher://gopher.debene.dev:70/`,
 `192.210.238.140`, x86_64) — fetcher + geomyidae via Docker Compose, sourcing the
@@ -154,15 +165,15 @@ is answered by a Grafana dashboard fed from Loki, and that pipeline lives in a
 **homelab k8s cluster** (`observability` namespace). The two surfaces only touch
 via the VPS access log, which the cluster reads over SSH.
 
-**State (verified 2026-06-26, read-only kubectl):** the *dashboard surface* is
-live — the ConfigMap is applied and Grafana renders it from Loki — but the
-*automation is NOT*: the `gopher-visitors-batch` CronJob and its
-`gopher-visitors-ssh` Secret were **never applied** (absent in every namespace).
-The data currently in Loki (~60 events, 06-23→06-26) was a **one-shot manual
-push** from a workstation (`scripts/visitors-to-loki.sh` / `visitors-remote.sh
---format ndjson | visitors-to-loki.py`). It will NOT refresh on its own — to make
-it a true daily feed, create the SSH Secret and `kubectl apply
-deploy/visitors-cronjob.yaml` (header has the steps).
+**State (2026-06-26):** everything is applied — dashboard ConfigMap (Grafana
+renders it), the `gopher-visitors-batch` CronJob (daily 09:00 UTC), the
+`gopher-visitors-ssh` Secret, and the `ghcr-pull` image-pull Secret; the image is
+**multi-arch** (the cluster has an arm64 node, `orion`). The CronJob does **not
+yet succeed** — its dedicated SSH key's *public* half still needs adding to the
+VPS `~/.ssh/authorized_keys` (`Permission denied (publickey)`). Until then, the
+Loki data is manual one-shot pushes. **Full breadcrumb +the deploy gotchas
+(multi-arch / private-package pull secret / SSH key) live in
+[`docs/VISITORS.md`](docs/VISITORS.md)** — read it before touching this again.
 
 Flow: VPS `geomyidae.log` → (daily k8s CronJob `gopher-visitors-batch`) ssh-cat
 the *yesterday-dated* rotated log → enrich offline (MaxMind ASN + rDNS +
@@ -179,11 +190,11 @@ updating, suspect the sidecar's namespace scope being narrowed.
 - `scripts/` — the enrich+push tooling, **read-only operator tools**, never part
   of the serving path (`scripts/README.md` is the full guide). `gopher-visitors.py`
   enriches; `visitors-to-loki.py` pushes; `*-remote.sh`/`*-batch.sh` chain it.
-- `deploy/visitors-cronjob.yaml` — the daily CronJob (ns `observability`;
-  **NOT YET APPLIED** — see State above; image
-  `ghcr.io/felipedbene/gopher-cta-visitors`, built from `deploy/Dockerfile.visitors`,
-  bundling the GeoLite2-ASN DB; SSH key from a Secret). Apply/backfill steps are in
-  the file header.
+- `deploy/visitors-cronjob.yaml` — the daily CronJob (ns `observability`, applied;
+  image `ghcr.io/felipedbene/gopher-cta-visitors` **multi-arch**, built from
+  `deploy/Dockerfile.visitors`, bundling the GeoLite2-ASN DB; SSH key from Secret
+  `gopher-visitors-ssh`; `imagePullSecrets: [ghcr-pull]` because the package is
+  private). Apply/backfill steps are in the file header.
 - `deploy/grafana-visitors-dashboard.json` — the dashboard (11 panels);
   `deploy/grafana-visitors-dashboard-configmap.yaml` wraps it as the sidecar-loaded
   ConfigMap (label `grafana_dashboard=1`, folder "Gopher-CTA"). Edit the JSON, then
@@ -208,9 +219,10 @@ updating, suspect the sidecar's namespace scope being narrowed.
 Live in **production** at `gopher://gopher.debene.dev:70/` (RackNerd, Docker
 Compose). Shipped: geo atlas, AI narration pages, `/landmarks` menu + detail
 pages, ANSI colour variants, the **map/atlas convergence** below, and a
-**visitor-analytics dashboard** (Grafana/Loki in the homelab cluster; dashboard
-applied & rendering, but the daily-push CronJob is not yet applied — data is
-manual one-shot pushes for now. See "Observability" above).
+**visitor-analytics dashboard** (Grafana/Loki in the homelab cluster; dashboard +
+daily CronJob + secrets all applied, multi-arch image pushed — only the VPS-side
+SSH key authorization is pending before the daily feed goes live. See
+"Observability" above and [`docs/VISITORS.md`](docs/VISITORS.md)).
 
 **Convergence (map.ansi ⇄ atlas.ansi).** Both surfaces draw the same Chicago
 skeleton (coast + Chicago River + 4 expressways) and name the same places with a

@@ -55,8 +55,8 @@ spec:
             app: gopher-visitors
         spec:
           restartPolicy: OnFailure
-          # imagePullSecrets:           # only if the ghcr package is PRIVATE
-          #   - name: ghcr-pull
+          imagePullSecrets:             # the ghcr package is PRIVATE (see secret below)
+            - name: ghcr-pull
           securityContext:
             runAsNonRoot: true
             runAsUser: 65532
