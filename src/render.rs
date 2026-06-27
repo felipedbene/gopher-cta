@@ -98,7 +98,12 @@ pub fn line_selector(line: &str) -> String {
 /// an about link. Drill-down begins here. `phlog` is the optional hub link to the
 /// sibling blog hole (`--phlog-link`): when `Some((host, port))` a single type-1
 /// entry advertises that address; `None` omits it.
-pub fn root_menu(pos: &Positions, src_available: bool, phlog: Option<(&str, u16)>) -> Vec<Entry> {
+pub fn root_menu(
+    pos: &Positions,
+    src_available: bool,
+    phlog: Option<(&str, u16)>,
+    deck: Option<(&str, u16)>,
+) -> Vec<Entry> {
     let mut e = vec![
         info("==============================================="),
         info("  gopher-cta : live CTA 'L' trains over Gopher"),
@@ -156,10 +161,14 @@ pub fn root_menu(pos: &Positions, src_available: bool, phlog: Option<(&str, u16)
         "CTA tracker -- the web original (tracker.debene.dev)",
         "URL:https://tracker.debene.dev/",
     ));
-    // Hub link to the sibling phlog hole (gopher-blog). A cross-server type-1
-    // link: the client dials the advertised host/port directly; :70 never proxies.
+    // Hub links to the sibling holes (gopher-blog phlog, gopher-askthedeck).
+    // Cross-server type-1 links: the client dials the advertised host/port
+    // directly; :70 never proxies.
     if let Some((host, port)) = phlog {
         e.push(link(ItemKind::Menu, "Phlog -- the blog", "/").with_host(host, port));
+    }
+    if let Some((host, port)) = deck {
+        e.push(link(ItemKind::Menu, "Ask the Deck -- tarot", "/").with_host(host, port));
     }
     e.push(info(""));
     e.push(info(
@@ -742,7 +751,7 @@ mod tests {
 
     #[test]
     fn root_menu_links_map_and_each_line() {
-        let entries = root_menu(&fixture_positions(), false, None);
+        let entries = root_menu(&fixture_positions(), false, None, None);
         // map link
         assert!(entries.iter().any(|e| matches!(e,
             Entry::Link { kind: ItemKind::Text, selector, .. } if selector == "/map.txt")));
