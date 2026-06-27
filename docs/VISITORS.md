@@ -47,9 +47,10 @@ excluded by design (see caveat 2), it is **not** a rotation failure.
 ## vclass / verdict / kind
 - **verdict** (per IP): `HUMAN`, `LIKELY HUMAN`, `BOT/CRAWLER`, `LIKELY BOT`, `UNKNOWN`.
 - **kind** (network): `residential`, `datacenter`, `mixed`, `unknown` — from ASN org + rDNS.
-- **vclass** collapses verdict for filtering: `h` = HUMAN/LIKELY HUMAN,
-  `b` = BOT/CRAWLER/LIKELY BOT, anything else (UNKNOWN) is neither. Verdict itself
-  = kind + request timing (human-paced vs bursty) + named-crawler rDNS.
+- **vclass** collapses verdict for filtering (`gopher-visitors.py::_vclass`):
+  `h` = HUMAN/LIKELY HUMAN, `b` = BOT/CRAWLER/LIKELY BOT, `q` = UNKNOWN (the
+  catch-all — *not* empty/absent). Verdict itself = kind + request timing
+  (human-paced vs bursty) + named-crawler rDNS.
 
 ## Run / refresh manually
 ```sh
