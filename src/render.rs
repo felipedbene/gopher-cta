@@ -10,6 +10,8 @@
 //! on-disk paths the fetcher writes:
 //!   /map.txt            the braille map (text)
 //!   /about.txt          about page (text)
+//!   /faq.txt /help.txt  FAQ + troubleshooting (text)
+//!   /dig.txt            hidden easter egg (in the tree, linked from no menu)
 //!   /<line>             per-line menu (a directory)
 //!   /train/<run>.txt    per-train detail (text)
 
@@ -154,6 +156,8 @@ pub fn root_menu(pos: &Positions) -> Vec<Entry> {
     }
     e.push(info(""));
     e.push(link(ItemKind::Text, "About this service", "/about.txt"));
+    e.push(link(ItemKind::Text, "FAQ", "/faq.txt"));
+    e.push(link(ItemKind::Text, "Troubleshooting", "/help.txt"));
     e.push(link(
         ItemKind::Url,
         "Source code (GitHub)",
@@ -580,12 +584,20 @@ fn map_page_inner(
     out
 }
 
+/// ASCII masthead for the about page — a little CTA 'L' car, branded.
+const ABOUT_ICON: &str = r#"        ______________________________
+     __/  []  []   gopher-cta   []    \__
+    |  |____________________________|    |
+    |__|  o   o   o   o   o   o   o  |____|
+    /  (O)========================(O)     \
+   '----------------------------------------'
+           live CTA 'L', dot by dot"#;
+
 /// The about page (plain text).
 pub fn about_page() -> String {
     let g = project::geometry();
     format!(
-        "gopher-cta\n\
-         ==========\n\n\
+        "{icon}\n\n\
          Live CTA 'L' train positions, rendered as a Unicode-braille map of\n\
          Chicago and served over Gopher -- the 1991 protocol, no HTTP, no\n\
          JavaScript.\n\n\
@@ -614,11 +626,110 @@ pub fn about_page() -> String {
          \x20 https://github.com/felipedbene/cta-track-grid\n\n\
          Built in Rust. Data from the CTA Train Tracker API.\n\
          Not affiliated with the Chicago Transit Authority.\n",
+        icon = ABOUT_ICON,
         wc = g.wc,
         hc = g.hc,
         wp = g.wp,
         hp = g.hp,
     )
+}
+
+/// FAQ page (`/faq.txt`). Answers the "why does it render like that" questions
+/// and ends with a sly hint at the hidden `/dig.txt`.
+pub fn faq_page() -> String {
+    "gopher-cta : FAQ\n\
+     ================\n\n\
+     Q: Why braille?\n\
+     A: Each braille cell packs 2x4 dots, so the whole city fits in plain text\n\
+     \x20  at high resolution. The dots are Unicode Braille Patterns\n\
+     \x20  (U+2800..U+28FF).\n\n\
+     Q: The map is just empty boxes or question marks.\n\
+     A: Your terminal font has no Braille Patterns glyphs, or you're not\n\
+     \x20  viewing in UTF-8. See /help.txt.\n\n\
+     Q: What's the difference between map.txt, map.ansi and atlas.ansi?\n\
+     A: map.txt is pure train dots -- no colour, no overlay. map.ansi adds\n\
+     \x20  colour and overlays the coastline, river, expressways and place\n\
+     \x20  codes. atlas.ansi is the same geography drawn with text characters\n\
+     \x20  instead of braille.\n\n\
+     Q: I see codes like ESC[38;5;39m instead of colours.\n\
+     A: Your client or terminal isn't interpreting ANSI colour. See /help.txt.\n\n\
+     Q: What do WIL, NVP, MDW... mean?\n\
+     A: Mnemonic place codes; the decode legend prints under the map and atlas.\n\n\
+     Q: How fresh is the data, and why \"N of M reporting\"?\n\
+     A: The fetcher republishes about every 30 seconds. The CTA feed sometimes\n\
+     \x20  reports a train without a usable position; those count in M, not N.\n\n\
+     Q: Where do the Dispatch / SITREP / Event panels come from?\n\
+     A: The cta-track-grid Worker -- the same brain behind the web tracker at\n\
+     \x20  https://tracker.debene.dev/. This gopher site is just another reader.\n\n\
+     Q: Is this an official CTA service?\n\
+     A: No. Not affiliated with the Chicago Transit Authority.\n\n\
+     Q: Is there anything hidden here?\n\
+     A: Gophers burrow. Keep digging.\n"
+        .to_string()
+}
+
+/// Troubleshooting page (`/help.txt`). Actionable fixes for the common
+/// rendering problems; the map width is sourced from the live geometry.
+pub fn help_page() -> String {
+    let g = project::geometry();
+    format!(
+        "gopher-cta : Troubleshooting\n\
+         ============================\n\n\
+         Map shows boxes, squares, or question marks\n\
+         \x20 Use a UTF-8 terminal and a font that includes Braille Patterns\n\
+         \x20 (U+2800..U+28FF). Known-good: DejaVu Sans Mono, Cascadia Code,\n\
+         \x20 Menlo, JuliaMono, Iosevka.\n\n\
+         Colour map prints ESC[...m escape codes instead of colour\n\
+         \x20 Your gopher client isn't passing the text to an ANSI-capable\n\
+         \x20 terminal. Try:\n\
+         \x20   curl gopher://gopher.debene.dev:70/0/map.ansi | less -R\n\
+         \x20 ...or a client that renders ANSI (e.g. Bombadillo) in a real\n\
+         \x20 terminal.\n\n\
+         Map wraps or looks sheared\n\
+         \x20 The map is {wc} columns wide -- give the terminal at least that\n\
+         \x20 many columns and turn off line wrapping.\n\n\
+         \"0 bytes\" or connection refused on port 70\n\
+         \x20 Some networks filter the gopher port. Try another network, or\n\
+         \x20 fetch a selector directly:\n\
+         \x20   curl gopher://gopher.debene.dev:70/0/map.txt\n\n\
+         Menu links point at the wrong host\n\
+         \x20 Server-side quirk (geomyidae -h). Fetching selectors directly\n\
+         \x20 still works.\n\n\
+         Remember: selectors are files\n\
+         \x20 Browse .../0/map.txt (type 0 = text) and .../1/ for menus.\n",
+        wc = g.wc,
+    )
+}
+
+/// Hidden easter-egg page (`/dig.txt`). Written into the tree but linked from
+/// no menu -- reachable only by guessing the selector (the FAQ hints at it).
+/// Cross-references gopherspace elders and the CTA family.
+pub fn dig_page() -> String {
+    r#"You found the burrow.
+=====================
+
+      .--.
+     ( oo )   ding ding!
+    _/`--'\_
+   (__/  \__)   >> now approaching: gopherspace
+
+Neighbours in the burrow
+------------------------
+  Floodgap   gopher://gopher.floodgap.com    (the gopher hub / Overbite)
+  SDF        gopher://sdf.org                 (public-access UNIX since 1987)
+
+The CTA family
+--------------
+  cta-track-grid   https://tracker.debene.dev/
+                   https://github.com/felipedbene/cta-track-grid
+                   (the web original; the Worker behind the AI panels --
+                    la mama de los pollitos)
+  cta-tui          the same data as a terminal UI
+  gopher-cta       you are here
+
+                -- dug by a gopher, for gophers --
+"#
+    .to_string()
 }
 
 #[cfg(test)]

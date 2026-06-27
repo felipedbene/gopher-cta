@@ -159,7 +159,10 @@ fn publish(
 ///   dispatch.txt         AI dispatch summary + live feed stats
 ///   sitrep.txt           AI SITREP (alerts summary) for the home station
 ///   events.txt           AI event advisory
-///   about.txt            about page (text)
+///   about.txt            about page (text, with ASCII masthead)
+///   faq.txt              FAQ (rendering questions)
+///   help.txt             troubleshooting (actionable fixes)
+///   dig.txt              hidden easter egg — written but linked from no menu
 ///   caps.txt             GopherII caps policy file (verbatim, CRLF)
 ///   robots.txt           crawler policy (disallows ephemeral /train/ pages)
 ///   <line>/index.gph     per-line menu, each train a drill-down link
@@ -203,6 +206,11 @@ fn write_tree(
         narration::events_page(narration, now),
     )?;
     fs::write(dir.join("about.txt"), render::about_page())?;
+    fs::write(dir.join("faq.txt"), render::faq_page())?;
+    fs::write(dir.join("help.txt"), render::help_page())?;
+    // Hidden easter egg: written into every snapshot but linked from no menu —
+    // reachable only by guessing the selector (the FAQ drops a hint).
+    fs::write(dir.join("dig.txt"), render::dig_page())?;
     // GopherII/Floodgap caps policy file. Written byte-for-byte (CRLF preserved)
     // into every snapshot so it survives the atomic republish — geomyidae serves
     // it verbatim at the `caps.txt` selector. Authored content, not generated.
@@ -396,6 +404,20 @@ mod tests {
         assert!(fs::read_to_string(link.join("about.txt"))
             .unwrap()
             .contains("gopher-cta"));
+        // help pages are published
+        assert!(fs::read_to_string(link.join("faq.txt"))
+            .unwrap()
+            .contains("Why braille?"));
+        assert!(fs::read_to_string(link.join("help.txt"))
+            .unwrap()
+            .contains("Troubleshooting"));
+        // the easter egg is in the tree but linked from no menu (hidden)
+        assert!(fs::read_to_string(link.join("dig.txt"))
+            .unwrap()
+            .contains("You found the burrow"));
+        assert!(!fs::read_to_string(link.join("index.gph"))
+            .unwrap()
+            .contains("/dig.txt"));
 
         // the atlas page is published alongside the braille map
         let atlas_txt = fs::read_to_string(link.join("atlas.txt")).unwrap();
@@ -468,6 +490,8 @@ mod tests {
         assert!(root.contains("[0|SITREP (AI alerts summary)|/sitrep.txt|server|port]\n"));
         assert!(root.contains("[0|Event advisory (AI)|/events.txt|server|port]\n"));
         assert!(root.contains("[1|Red      (5 running)|/red|server|port]\n"));
+        assert!(root.contains("[0|FAQ|/faq.txt|server|port]\n"));
+        assert!(root.contains("[0|Troubleshooting|/help.txt|server|port]\n"));
         // external links render as gopher type 'h' with a URL: selector
         assert!(root
             .contains("[h|Source code (GitHub)|URL:https://github.com/felipedbene/gopher-cta|server|port]\n"));

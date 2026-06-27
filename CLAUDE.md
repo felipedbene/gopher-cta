@@ -25,7 +25,9 @@ geomyidae prepends the gopher type, so browse `gopher://host:7070/0/map.txt`
 | `map.ansi` | braille map, ANSI; overlays the Chicago skeleton (coast+river=cyan, expressways=grey) + inline mnemonic place codes (white) + a decode legend, under the line-coloured trains |
 | `atlas.txt` / `atlas.ansi` | char-cell geo atlas, converged with map.ansi: coast `#` + river `~` + expressways + inline mnemonic codes (WIL/NVP/MDW…) + legend + trains |
 | `dispatch.txt` / `sitrep.txt` / `events.txt` | AI panels (see Narration) |
-| `about.txt` | about |
+| `about.txt` | about (ASCII 'L'-car masthead, surfaces + cta-track-grid family) |
+| `faq.txt` / `help.txt` | FAQ (rendering Qs) + troubleshooting (font/UTF-8/ANSI fixes) |
+| `dig.txt` | **hidden** easter egg — written into the tree, linked from no menu; FAQ hints at it. ASCII gopher + Floodgap/SDF/family cross-ref |
 | `<line>/index.gph` | per-line menu (`red blue brn g org p pink y`) |
 | `train/<run>.txt` | per-train detail |
 
