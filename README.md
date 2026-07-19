@@ -1,5 +1,7 @@
 # gopher-cta
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) ![Rust](https://img.shields.io/badge/Rust-gopher-orange.svg) [![CI](https://github.com/felipedbene/gopher-cta/actions/workflows/ci.yml/badge.svg)](https://github.com/felipedbene/gopher-cta/actions/workflows/ci.yml)
+
 A **fetcher** that turns **live CTA 'L' train positions into a static gopher
 tree** for an existing gopher daemon (**geomyidae**) to serve. It renders two map
 surfaces — a Unicode-**braille** plot and a char-cell **geographic atlas**, both
@@ -7,6 +9,11 @@ overlaid with the Chicago coastline, river, expressways and mnemonic place codes
 (plain + ANSI-colour variants) — plus per-line listings, per-train detail pages, a
 landmarks menu, and AI narration panels. Written in Rust, minimal deps. No
 protocol server of its own.
+
+![CTA 'L' trains as a Unicode-braille map](docs/img/map-ansi-pizero3w.png)
+
+*The ANSI braille map (`map.ansi`) rendered live in a terminal — CTA 'L' trains
+over the Chicago coastline, river and expressways.*
 
 ```
   CTA Train Tracker ─► CtaSource ─► render (braille map + atlas, menus,
@@ -376,3 +383,10 @@ gopher protocol server of our own (a daemon serves the static tree). No type-7
 search — navigation + drill-down only. TLS is used only for the outbound CTA
 fetch (rustls by default, OpenSSL for big-endian targets). Not affiliated with
 the Chicago Transit Authority.
+
+---
+### Part of the gopher constellation
+**Servers & tools:** [gopher-core](https://github.com/felipedbene/gopher-core) · [gopher-cta](https://github.com/felipedbene/gopher-cta) · [gopher-blog](https://github.com/felipedbene/gopher-blog) · [gopher-askthedeck](https://github.com/felipedbene/gopher-askthedeck) · [gopher-spot](https://github.com/felipedbene/gopher-spot) · [the-economist-epub](https://github.com/felipedbene/the-economist-epub)
+**Clients:** [casquinha](https://github.com/felipedbene/casquinha) (Mac OS 9) · [detoca](https://github.com/felipedbene/detoca) (OS X 10.6) · [degelato](https://github.com/felipedbene/degelato) (OS X 10.5 PPC) · [deburrow](https://github.com/felipedbene/deburrow) (Android)
+**Protocol notes:** [fhb](https://github.com/felipedbene/fhb)
+---
