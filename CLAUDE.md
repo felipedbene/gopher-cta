@@ -115,7 +115,7 @@ The `--config` dir holds the auth as plaintext base64 (no credStore), so the pus
 authenticates. (Fallback: felipe pushes from his own Terminal, keychain creds.)
 
 **PRODUCTION is the RackNerd VPS** (`gopher://gopher.debene.dev:70/`,
-`192.210.238.140`, x86_64) — fetcher + geomyidae via Docker Compose, sourcing the
+`<your-vps-host>`, x86_64) — fetcher + geomyidae via Docker Compose, sourcing the
 fetcher image through a gitignored `docker-compose.override.yml` (local
 `gopher-cta-local:amd64` build). **The full runbook is
 [`docs/DEPLOY.md`](docs/DEPLOY.md)** — deploy steps, verification, troubleshooting.
@@ -130,13 +130,13 @@ geomyidae's access log persists to the host at `/var/log/gopher/geomyidae.log`
 host prep so `nobody` (uid 65534) can write: `sudo mkdir -p /var/log/gopher &&
 sudo chown 65534:65534 /var/log/gopher`. See `docs/DEPLOY.md` Logs note.
 
-The Mac Studio (`gopher://10.0.10.69:7070`) is just a **dev/preview box**, not
+The Mac Studio (`gopher://<your-lan>:7070`) is just a **dev/preview box**, not
 prod. Its setup:
 1. `geo` — `geomyidae:local`, `-p 7070:7070`, mounts repo `public/ -> /srv`,
    serves `/srv/current`. Long-running; serves whatever the fetcher writes, **no
-   restart needed** when the tree updates. **Must be started with `-h 10.0.10.69`**
+   restart needed** when the tree updates. **Must be started with `-h <your-lan>`**
    (`docker run --rm -d --name geo -p 7070:7070 -v <repo>/public:/srv:ro
-   geomyidae:local -h 10.0.10.69`) — without `-h`, geomyidae substitutes the
+   geomyidae:local -h <your-lan>`) — without `-h`, geomyidae substitutes the
    `.gph` `server` placeholder with its container hostname, so every menu link
    advertises an unreachable host and link-following breaks (direct
    `curl …/0/map.txt` still works because the client supplies the host). The
@@ -154,7 +154,7 @@ To redeploy a code change: `felipe` pushes the image (keychain), then
 ```sh
 docker rm -f gopher-cta-fetcher
 docker run -d --name gopher-cta-fetcher --env-file .env \
-  -v /Users/felipe/Projects/gopher-cta/public:/srv \
+  -v <repo>/public:/srv \
   ghcr.io/felipedbene/gopher-cta:latest --interval 30 --out /srv
 ```
 (geomyidae keeps running.) Image is amd64; runs under emulation on the arm Mac —

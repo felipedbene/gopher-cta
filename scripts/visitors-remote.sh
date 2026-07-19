@@ -10,7 +10,7 @@
 #   scripts/visitors-remote.sh                                  # default host + live log
 #   scripts/visitors-remote.sh --out ~/visitors.txt             # extra flags pass through
 #   scripts/visitors-remote.sh --remote-log /var/log/gopher/geomyidae.log-20260626
-#   scripts/visitors-remote.sh --host felipe@192.210.238.140
+#   scripts/visitors-remote.sh --host user@<your-vps-host>
 #   GOPHER_SSH=gopher-vps scripts/visitors-remote.sh            # or use an ssh config alias
 #
 # Any flag this script doesn't recognise (--out, --no-rdns, --exclude-ip,

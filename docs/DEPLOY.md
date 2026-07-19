@@ -9,7 +9,7 @@ Operational runbook for the live deployment at **`gopher://gopher.debene.dev:70/
 
 ## What's running
 
-Two containers on the production VPS (RackNerd Chicago, `192.210.238.140`),
+Two containers on the production VPS (RackNerd Chicago, `<your-vps-host>`),
 orchestrated by Docker Compose:
 
 | Container | Image | Role |

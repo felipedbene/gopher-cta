@@ -17,7 +17,7 @@ It is deliberately isolated from the serving path:
 Usage:
     python3 scripts/gopher-visitors.py                       # default log + exclusions
     python3 scripts/gopher-visitors.py --log /var/log/gopher/geomyidae.log
-    python3 scripts/gopher-visitors.py --exclude-ip 73.211.52.98 --exclude-ip 1.2.3.4
+    python3 scripts/gopher-visitors.py --exclude-ip <your-ip> --exclude-ip 1.2.3.4
     python3 scripts/gopher-visitors.py --no-rdns             # skip reverse DNS (faster)
     python3 scripts/gopher-visitors.py --out report.txt      # also write the report
 
@@ -47,9 +47,9 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 LOG_DEFAULT = "/var/log/gopher/geomyidae.log"
-SELF_IP_DEFAULT = "73.211.52.98"  # felipe's own testing/kiosk IP — dropped by default
+SELF_IP_DEFAULT = os.environ.get("SELF_IP", "127.0.0.1")  # operator testing/kiosk IP (set $SELF_IP) — dropped by default
 
-# geomyidae access line: "[2026-06-26 12:52:38 +0000|73.211.52.98|60516|serving] /map.ansi"
+# geomyidae access line: "[2026-06-26 12:52:38 +0000|203.0.113.7|60516|serving] /map.ansi"
 LINE_RE = re.compile(
     r"^\[(?P<ts>[^|]+)\|(?P<ip>[^|]+)\|(?P<port>[^|]+)\|(?P<status>[^\]]+)\]\s*(?P<sel>.*?)\s*$"
 )

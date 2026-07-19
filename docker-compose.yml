@@ -54,7 +54,7 @@ services:
     command:
       - >
         geomyidae -d -b /srv/current -p 7070
-        -h "${GOPHER_HOST:-10.0.10.69}" -o "${GOPHER_PORT:-7070}"
+        -h "${GOPHER_HOST:-127.0.0.1}" -o "${GOPHER_PORT:-7070}"
         2>&1 | tee -a /var/log/gopher/geomyidae.log
     ports:
       - "${GOPHER_PORT:-7070}:7070"

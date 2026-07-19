@@ -15,7 +15,7 @@ Enriches the persisted geomyidae access log
 For each connecting IP it:
 
 1. parses the log, keeping only `serving` lines, and drops excluded IPs
-   (`--exclude-ip`, default once for felipe's own `73.211.52.98` so testing /
+   (`--exclude-ip`, default once for the operator's own `<your-ip>` so testing /
    kiosk traffic doesn't pollute the report);
 2. enriches the IP **offline** — ASN/org from a local MaxMind GeoLite2-ASN
    `.mmdb` (downloaded once, never queried live) + best-effort reverse DNS
@@ -29,12 +29,12 @@ For each connecting IP it:
 ### Run
 
 ```sh
-# default: /var/log/gopher/geomyidae.log, excludes 73.211.52.98
+# default: /var/log/gopher/geomyidae.log, excludes $SELF_IP (default 127.0.0.1)
 python3 scripts/gopher-visitors.py
 
 # point at a file, write a copy, drop extra IPs
 python3 scripts/gopher-visitors.py --log /var/log/gopher/geomyidae.log-20260626 \
-    --exclude-ip 73.211.52.98 --out /tmp/visitors.txt
+    --exclude-ip <your-ip> --out /tmp/visitors.txt
 
 # offline demo against the bundled sample (no VPS needed)
 python3 scripts/gopher-visitors.py --log scripts/sample-access.log
@@ -129,7 +129,7 @@ stay on your machine). READ-ONLY on the server, single run, no daemon.
 scripts/visitors-remote.sh                                    # live log, default host
 scripts/visitors-remote.sh --remote-log /var/log/gopher/geomyidae.log-20260626
 scripts/visitors-remote.sh --out ~/visitors.txt --no-rdns     # extra flags pass through
-GOPHER_SSH=felipe@192.210.238.140 scripts/visitors-remote.sh  # override host (or ssh alias)
+GOPHER_SSH=user@<your-vps-host> scripts/visitors-remote.sh  # override host (or ssh alias)
 ```
 
 Host defaults to `$GOPHER_SSH` (else `felipe@gopher.debene.dev`); remote log to

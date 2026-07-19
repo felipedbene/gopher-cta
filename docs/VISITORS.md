@@ -41,7 +41,7 @@ locked to `~/.ssh/gopher-log-reader` (a forced-command wrapper that only `cat`s
 the gopher logs), and an end-to-end run pushed live-log hits to Loki
 (`pushed 17/17`). Shipping is now **on the timer** (daily 09:00 UTC); manual runs
 still work for backfill. Note: a daily run can legitimately push `0 entries` when
-that day's dated log holds only operator-IP (`73.211.52.98`) hits — those are
+that day's dated log holds only operator-IP (`<your-ip>`) hits — those are
 excluded by design (see caveat 2), it is **not** a rotation failure.
 
 ## vclass / verdict / kind
@@ -67,11 +67,11 @@ The CronJob runs the same chain (`visitors-batch.sh`) on the daily timer.
    telecom / regional-ISP consumer ranges read as residential; some cloud NAT reads
    ambiguous. Don't trust a single-IP verdict on the margin; trust the aggregate.
 2. **The operator IP is excluded in the *analyzer*, not upstream.** `gopher-
-   visitors.py` drops `SELF_IP_DEFAULT = 73.211.52.98` via the **default**
+   visitors.py` drops the operator IP (`SELF_IP_DEFAULT`, from `$SELF_IP`) via the **default**
    `--exclude-ip`. The VPS still logs it and Loki would store it — only that default
    keeps it out. `--exclude-ip` *replaces* the default (doesn't append), so any
    caller passing its own `--exclude-ip` silently re-includes the operator IP unless
-   it re-lists `73.211.52.98`. `visitors-batch.sh` passes none today (relies on the default).
+   it re-lists `<your-ip>`. `visitors-batch.sh` passes none today (relies on the default).
 
 ## Deploy gotchas (learned 2026-06-26 — so we never re-debug the CronJob)
 The image+secret dance that made the first CronJob runs fail, and the fixes:

@@ -113,12 +113,12 @@ projection, so they're pixel-locked to each other.
 - The train fast path never blocks on or hard-depends on narration.
 - gopher correctness: type-0 for text bodies, type-1 for menus.
 
-### Current deployment — local docker (felipe's Mac Studio, `10.0.10.69`)
+### Current deployment — local docker (felipe's Mac Studio, `<your-lan>`)
 
 Not Kubernetes today. Two containers, a shared bind mount:
 
 ```
-  ┌─────────────────────── Mac Studio (10.0.10.69) ───────────────────────┐
+  ┌─────────────────────── Mac Studio (<your-lan>) ───────────────────────┐
   │                                                                        │
   │   gopher-cta-fetcher                         geo (geomyidae:local)     │
   │   image ghcr.io/felipedbene/gopher-cta       -p 7070:7070              │
@@ -129,7 +129,7 @@ Not Kubernetes today. Two containers, a shared bind mount:
   └────────────────────────────────────────────────────────────────────────┘
                                      │ :7070
                                      ▼
-                          gopher://10.0.10.69:7070
+                          gopher://<your-lan>:7070
 ```
 
 geomyidae runs continuously and serves whatever the fetcher writes — a code
