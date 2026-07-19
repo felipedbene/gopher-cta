@@ -16,3 +16,7 @@ docker-compose.override.yml
 
 # Raw framebuffer grabs (fbgrab .ppm) — keep the converted .png, not the source
 *.ppm
+
+# Python bytecode cache (build artifact)
+__pycache__/
+*.pyc
