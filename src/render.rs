@@ -103,6 +103,7 @@ pub fn root_menu(
     src_available: bool,
     phlog: Option<(&str, u16)>,
     deck: Option<(&str, u16)>,
+    src: Option<(&str, u16)>,
 ) -> Vec<Entry> {
     let mut e = vec![
         info("==============================================="),
@@ -169,6 +170,9 @@ pub fn root_menu(
     }
     if let Some((host, port)) = deck {
         e.push(link(ItemKind::Menu, "Ask the Deck -- tarot", "/").with_host(host, port));
+    }
+    if let Some((host, port)) = src {
+        e.push(link(ItemKind::Menu, "Source tarballs (gopher-src)", "/src").with_host(host, port));
     }
     e.push(info(""));
     e.push(info(
@@ -751,7 +755,7 @@ mod tests {
 
     #[test]
     fn root_menu_links_map_and_each_line() {
-        let entries = root_menu(&fixture_positions(), false, None, None);
+        let entries = root_menu(&fixture_positions(), false, None, None, None);
         // map link
         assert!(entries.iter().any(|e| matches!(e,
             Entry::Link { kind: ItemKind::Text, selector, .. } if selector == "/map.txt")));

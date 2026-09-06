@@ -47,11 +47,12 @@ fn load_src_archive() -> Option<Vec<u8>> {
     fs::read(&path).ok()
 }
 
-/// Default hub links to the sibling holes (gopher-blog phlog, gopher-askthedeck),
-/// advertised in the root menu. Overridable with `--phlog-link` / `--deck-link`;
-/// `none` disables either.
+/// Default hub links to the sibling holes (gopher-blog phlog, gopher-askthedeck,
+/// gopher-src), advertised in the root menu. Overridable with `--phlog-link` /
+/// `--deck-link` / `--src-link`; `none` disables any of them.
 const DEFAULT_PHLOG_LINK: &str = "gopher://gopher.debene.dev:7071";
 const DEFAULT_DECK_LINK: &str = "gopher://gopher.debene.dev:7072";
+const DEFAULT_SRC_LINK: &str = "gopher://gopher.debene.dev:7073";
 
 /// Fetcher configuration, parsed from CLI args / env.
 pub struct Config {
@@ -62,6 +63,8 @@ pub struct Config {
     pub phlog_link: Option<(String, u16)>,
     /// Hub link to gopher-askthedeck: `(host, port)`, or `None` to omit it.
     pub deck_link: Option<(String, u16)>,
+    /// Hub link to gopher-src (source tarballs): `(host, port)`, or `None`.
+    pub src_link: Option<(String, u16)>,
 }
 
 impl Config {
@@ -75,6 +78,7 @@ impl Config {
         let mut interval = Duration::from_secs(30);
         let mut phlog_raw = DEFAULT_PHLOG_LINK.to_string();
         let mut deck_raw = DEFAULT_DECK_LINK.to_string();
+        let mut src_raw = DEFAULT_SRC_LINK.to_string();
 
         let mut it = args.iter();
         while let Some(a) = it.next() {
@@ -88,6 +92,7 @@ impl Config {
                 "--out" => out = PathBuf::from(it.next().ok_or("--out needs <dir>")?),
                 "--phlog-link" => phlog_raw = it.next().ok_or("--phlog-link needs <url>")?.clone(),
                 "--deck-link" => deck_raw = it.next().ok_or("--deck-link needs <url>")?.clone(),
+                "--src-link" => src_raw = it.next().ok_or("--src-link needs <url>")?.clone(),
                 other => return Err(format!("unknown fetch arg: {other}")),
             }
         }
@@ -97,6 +102,7 @@ impl Config {
             interval,
             phlog_link: parse_phlog_link(&phlog_raw)?,
             deck_link: parse_phlog_link(&deck_raw)?,
+            src_link: parse_phlog_link(&src_raw)?,
         })
     }
 }
@@ -158,6 +164,7 @@ pub async fn run<S: TransitSource>(cfg: Config, source: S) -> io::Result<()> {
                 let view = narration.lock().unwrap().clone();
                 let phlog = cfg.phlog_link.as_ref().map(|(h, p)| (h.as_str(), *p));
                 let deck = cfg.deck_link.as_ref().map(|(h, p)| (h.as_str(), *p));
+                let src = cfg.src_link.as_ref().map(|(h, p)| (h.as_str(), *p));
                 match publish(
                     &cfg.out,
                     &pos,
@@ -169,6 +176,7 @@ pub async fn run<S: TransitSource>(cfg: Config, source: S) -> io::Result<()> {
                     src_archive.as_deref(),
                     phlog,
                     deck,
+                    src,
                 ) {
                     Ok(snap) => eprintln!(
                         "[fetch] published {} ({} trains) -> {}/current",
@@ -203,6 +211,7 @@ fn publish(
     src_archive: Option<&[u8]>,
     phlog: Option<(&str, u16)>,
     deck: Option<(&str, u16)>,
+    src: Option<(&str, u16)>,
 ) -> io::Result<PathBuf> {
     fs::create_dir_all(out)?;
     let ts = SystemTime::now()
@@ -222,6 +231,7 @@ fn publish(
         src_archive,
         phlog,
         deck,
+        src,
     )?;
     gopher_core::flip_current(out, &snap)?;
     gopher_core::gc(out, KEEP_SNAPSHOTS)?;
@@ -260,12 +270,19 @@ fn write_tree(
     src_archive: Option<&[u8]>,
     phlog: Option<(&str, u16)>,
     deck: Option<(&str, u16)>,
+    src: Option<(&str, u16)>,
 ) -> io::Result<()> {
     // Root menu + top-level text pages. Advertise the source tarball only when
     // it's actually written into this snapshot.
     fs::write(
         dir.join("index.gph"),
-        gopher_core::render_menu_index(&render::root_menu(pos, src_archive.is_some(), phlog, deck)),
+        gopher_core::render_menu_index(&render::root_menu(
+            pos,
+            src_archive.is_some(),
+            phlog,
+            deck,
+            src,
+        )),
     )?;
     if let Some(bytes) = src_archive {
         fs::write(dir.join("src.tar.gz"), bytes)?;
@@ -397,7 +414,7 @@ mod tests {
         let pos = fixture_positions();
 
         let snap = publish(
-            &tmp.0, &pos, &geo, &atlas, &map_base, &narration, "CTA 'L'", None, None, None,
+            &tmp.0, &pos, &geo, &atlas, &map_base, &narration, "CTA 'L'", None, None, None, None,
         )
         .unwrap();
 
@@ -467,6 +484,7 @@ mod tests {
             true,
             Some(("gopher.debene.dev", 7071)),
             Some(("gopher.debene.dev", 7072)),
+            Some(("gopher.debene.dev", 7073)),
         ));
         assert!(root.contains("  gopher-cta : live CTA 'L' trains over Gopher\n"));
         assert!(root.contains("[0|Live train map (braille)|/map.txt|server|port]\n"));
@@ -491,6 +509,7 @@ mod tests {
         // (cross-server menu links); everything else stays placeholder tokens.
         assert!(root.contains("[1|Phlog -- the blog|/|gopher.debene.dev|7071]\n"));
         assert!(root.contains("[1|Ask the Deck -- tarot|/|gopher.debene.dev|7072]\n"));
+        assert!(root.contains("[1|Source tarballs (gopher-src)|/src|gopher.debene.dev|7073]\n"));
         // never bake a real host/port into a *local* (this-tree) link
         assert!(!root.contains("localhost"));
         assert!(!root.contains("\t"));
@@ -508,11 +527,13 @@ mod tests {
         // root with vs without it may differ by exactly the one new line; every
         // existing link/info line stays byte-identical (no host/port leakage).
         let pos = fixture_positions();
-        let without = gopher_core::render_menu_index(&render::root_menu(&pos, true, None, None));
+        let without =
+            gopher_core::render_menu_index(&render::root_menu(&pos, true, None, None, None));
         let with = gopher_core::render_menu_index(&render::root_menu(
             &pos,
             true,
             Some(("gopher.debene.dev", 7071)),
+            None,
             None,
         ));
         let a: Vec<&str> = without.lines().collect();
@@ -529,12 +550,14 @@ mod tests {
     fn deck_link_adds_exactly_one_line_and_changes_nothing_else() {
         // Same golden guard for the gopher-askthedeck hub link: purely additive.
         let pos = fixture_positions();
-        let without = gopher_core::render_menu_index(&render::root_menu(&pos, true, None, None));
+        let without =
+            gopher_core::render_menu_index(&render::root_menu(&pos, true, None, None, None));
         let with = gopher_core::render_menu_index(&render::root_menu(
             &pos,
             true,
             None,
             Some(("gopher.debene.dev", 7072)),
+            None,
         ));
         let a: Vec<&str> = without.lines().collect();
         let b: Vec<&str> = with.lines().collect();
@@ -542,6 +565,29 @@ mod tests {
 
         let extra = "[1|Ask the Deck -- tarot|/|gopher.debene.dev|7072]";
         assert!(b.contains(&extra), "the new line must be the deck link");
+        let rest: Vec<&str> = b.into_iter().filter(|l| *l != extra).collect();
+        assert_eq!(rest, a, "all pre-existing lines must be byte-identical");
+    }
+
+    #[test]
+    fn src_link_adds_exactly_one_line_and_changes_nothing_else() {
+        // Same golden guard for the gopher-src hub link: purely additive.
+        let pos = fixture_positions();
+        let without =
+            gopher_core::render_menu_index(&render::root_menu(&pos, true, None, None, None));
+        let with = gopher_core::render_menu_index(&render::root_menu(
+            &pos,
+            true,
+            None,
+            None,
+            Some(("gopher.debene.dev", 7073)),
+        ));
+        let a: Vec<&str> = without.lines().collect();
+        let b: Vec<&str> = with.lines().collect();
+        assert_eq!(b.len(), a.len() + 1, "src must add exactly one line");
+
+        let extra = "[1|Source tarballs (gopher-src)|/src|gopher.debene.dev|7073]";
+        assert!(b.contains(&extra), "the new line must be the src link");
         let rest: Vec<&str> = b.into_iter().filter(|l| *l != extra).collect();
         assert_eq!(rest, a, "all pre-existing lines must be byte-identical");
     }
@@ -570,7 +616,7 @@ mod tests {
         let map_base = render::MapBase::build(&geo);
         let narration = NarrationView::default();
         let snap = publish(
-            &tmp.0, &pos, &geo, &atlas, &map_base, &narration, "CTA 'L'", None, None, None,
+            &tmp.0, &pos, &geo, &atlas, &map_base, &narration, "CTA 'L'", None, None, None, None,
         )
         .unwrap();
 
